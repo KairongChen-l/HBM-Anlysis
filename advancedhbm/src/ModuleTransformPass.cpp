@@ -361,10 +361,10 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
         if (!MR->MallocCall || !MR->MallocCall)
             continue;
 
-        //TODO 检查是否应该移到HBM
-        bool shouldUseHBM = MR->UserForcedHot ||                                            // 用户强制指定
+        // TODO 检查是否应该移到HBM
+        bool shouldUseHBM = MR->UserForcedHot ||                             // 用户强制指定
                             (MR->Score >= ThresholdInfo.adjustedThreshold && // 得分高于阈值
-                             (used + MR->AllocSize <= capacity));                           // 且HBM有足够空间
+                             (used + MR->AllocSize <= capacity));            // 且HBM有足够空间
 
         if (shouldUseHBM)
         {
@@ -407,7 +407,7 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
     }
 
     // 输出HBM使用统计
-    errs() << "[ModuleTransformPass] HBM used: " << used << "/" << capacity << " bytes\n";
+    errs() << "[ModuleTransformPass] HBM used: " << used << " bytes\n";
 }
 
 void ModuleTransformPass::generateReport(const Module &M, ArrayRef<MallocRecord *> AllMallocs, bool JSONOutput)

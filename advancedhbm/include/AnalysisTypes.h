@@ -130,6 +130,31 @@ namespace MyHBM
     bool hasInterleavedReadWrite = false;
   };
 
+
+  enum class TemporalLocalityLevel
+  {
+    EXCELLENT, // Reused immediately or very frequently
+    GOOD,      // Short reuse distance or consistent reuse
+    MODERATE,  // Medium reuse distance
+    POOR,      // Long or no reuse pattern detected
+    UNKNOWN    // Cannot determine
+  };
+
+  struct TemporalLocalityInfo
+  {
+    TemporalLocalityLevel level;
+    unsigned estimatedReuseDistance;
+    double reuseFrequency;        // Estimated reuses per loop iteration
+    bool isLoopInvariant;         // Is value invariant across loop iterations
+    double temporalLocalityScore; // 0-100 score for HBM suitability
+
+    TemporalLocalityInfo()
+        : level(TemporalLocalityLevel::UNKNOWN),
+          estimatedReuseDistance(UINT_MAX),
+          reuseFrequency(0.0),
+          isLoopInvariant(false),
+          temporalLocalityScore(0.0) {}
+  };
 } // namespace MyHBM
 
 #endif // MYHBM_ANALYSIS_TYPES_H
