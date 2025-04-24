@@ -5,7 +5,7 @@
 #include "DataFlowAnalyzer.h"
 #include "LoopAnalyzer.h"
 #include "ParallelismAnalyzer.h"
-//#include "ProfileGuidedAnalyzer.h"
+// #include "ProfileGuidedAnalyzer.h"
 #include "StrideAnalyzer.h"
 #include "VectorizationAnalyzer.h"
 #include "PointerUtils.h"
@@ -311,7 +311,7 @@ double FunctionAnalysisPass::analyzeMallocStatic(
     CrossFunctionAnalyzer CrossFnAnalyzer;
     DataFlowAnalyzer DataFlowAnalyzer;
     ContentionAnalyzer ContentionAnalyzer(LI);
-    //ProfileGuidedAnalyzer ProfileAnalyzer;
+    // ProfileGuidedAnalyzer ProfileAnalyzer;
 
     // 添加跨函数分析
     try
@@ -346,22 +346,22 @@ double FunctionAnalysisPass::analyzeMallocStatic(
         errs() << "Warning: Contention analysis failed: " << e.what() << "\n";
     }
 
-     // 添加Profile引导分析
+    // 添加Profile引导分析
     // try
     // {
     //     MR.ProfileInfo = ProfileAnalyzer.analyzeProfileData(CI, F);
 
-         // 添加多维度评分计算
+    // 添加多维度评分计算
     //     MR.MultiDimScore = ProfileAnalyzer.computeMultiDimensionalScore(MR);
 
-         // 使用Profile数据调整分数,目前暂时不适用Profile
-         //MR.ProfileAdjustedScore = ProfileAnalyzer.adjustScoreWithProfile(Score, MR.ProfileInfo);
+    // 使用Profile数据调整分数,目前暂时不适用Profile
+    // MR.ProfileAdjustedScore = ProfileAnalyzer.adjustScoreWithProfile(Score, MR.ProfileInfo);
     //     MR.ProfileAdjustedScore = 60;
     // }
     // catch (const std::exception &e)
     // {
     //     errs() << "Warning: Profile analysis failed: " << e.what() << "\n";
-         // 回退到基本分数
+    // 回退到基本分数
     //     MR.ProfileAdjustedScore = Score;
     // }
 
@@ -425,6 +425,26 @@ double FunctionAnalysisPass::analyzeMallocStatic(
                     MR.DynamicAccessCount = usage;
                 }
             }
+        }
+    }
+
+    // Consider temporal locality
+    if (MR.TemporalLocalityScore != 0.0)
+    {
+        // Temporal locality factors are already incorporated in the score during
+        // the bandwidth analysis, but we might want to adjust here based on the
+        // overall pattern
+        if (MR.TemporalLocality == TemporalLocalityLevel::POOR)
+        {
+            // Poor temporal locality means CPU caches are ineffective
+            // This makes HBM more beneficial
+            Score += 5.0;
+        }
+        else if (MR.TemporalLocality == TemporalLocalityLevel::EXCELLENT)
+        {
+            // Excellent locality might make CPU caches more effective
+            // This could reduce the relative benefit of HBM
+            Score -= 5.0;
         }
     }
 
@@ -582,9 +602,9 @@ void FunctionAnalysisPass::matchFreeCalls(FunctionMallocInfo &FMI, std::vector<C
     }
 }
 
-
 // 设置MallocRecord的源码位置
-void MyHBM::FunctionAnalysisPass::setSourceLocation(llvm::CallInst *CI, llvm::Function &F, MyHBM::MallocRecord &MR) {
+void MyHBM::FunctionAnalysisPass::setSourceLocation(llvm::CallInst *CI, llvm::Function &F, MyHBM::MallocRecord &MR)
+{
     if (DILocation *Loc = CI->getDebugLoc())
     {
         unsigned Line = Loc->getLine();

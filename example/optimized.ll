@@ -444,7 +444,7 @@ define dso_local void @multidimensional_array() #0 {
   store i32 100, ptr %1, align 4
   store i32 100, ptr %2, align 4
   store i32 100, ptr %3, align 4
-  %12 = call noalias ptr @hbm_malloc(i64 noundef 800) #5
+  %12 = call noalias ptr @malloc(i64 noundef 800) #5
   store ptr %12, ptr %4, align 8
   store i32 0, ptr %5, align 4
   br label %13
@@ -678,7 +678,7 @@ define dso_local void @cross_function_memory() #0 {
   %4 = alloca i32, align 4
   %5 = alloca i32, align 4
   store i32 1000000, ptr %1, align 4
-  %6 = call noalias ptr @hbm_malloc(i64 noundef 4000000) #5
+  %6 = call noalias ptr @malloc(i64 noundef 4000000) #5
   store ptr %6, ptr %2, align 8
   store i32 0, ptr %3, align 4
   br label %7
@@ -754,7 +754,7 @@ define dso_local i32 @main() #0 {
   %10 = alloca i32, align 4
   store i32 0, ptr %1, align 4
   store i32 10000000, ptr %2, align 4
-  %11 = call noalias ptr @hbm_malloc(i64 noundef 40000000) #5
+  %11 = call noalias ptr @malloc(i64 noundef 40000000) #5
   store ptr %11, ptr %3, align 8
   %12 = load ptr, ptr %3, align 8
   %13 = icmp ne ptr %12, null
@@ -774,7 +774,7 @@ define dso_local i32 @main() #0 {
   call void @vectorizable_operation(ptr noundef %19, i32 noundef 10000000)
   store i32 1000, ptr %4, align 4
   store i32 1000, ptr %5, align 4
-  %20 = call noalias ptr @hbm_malloc(i64 noundef 8000) #5
+  %20 = call noalias ptr @malloc(i64 noundef 8000) #5
   store ptr %20, ptr %6, align 8
   store i32 0, ptr %7, align 4
   br label %21
@@ -832,7 +832,7 @@ define dso_local i32 @main() #0 {
   call void @cross_function_memory()
   %49 = load ptr, ptr %3, align 8
   call void @free(ptr noundef %49) #4
-  %50 = call noalias ptr @hbm_malloc(i64 noundef 40) #5
+  %50 = call noalias ptr @malloc(i64 noundef 40) #5
   store ptr %50, ptr %9, align 8
   store i32 0, ptr %10, align 4
   br label %51

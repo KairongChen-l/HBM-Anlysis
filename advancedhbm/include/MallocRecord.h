@@ -3,6 +3,7 @@
 
 #include "llvm/IR/Instruction.h"
 #include "AnalysisTypes.h"
+#include "TemporalLocalityAnalyzer.h"
 #include <string>
 #include <vector>
 
@@ -74,6 +75,12 @@ namespace MyHBM
     // 新增的动态特性成员
     ProfileGuidedInfo ProfileInfo;
     double ProfileAdjustedScore = 0.0;
+
+    // Temporal locality 
+    double TemporalLocalityScore = 0.0;
+    TemporalLocalityLevel TemporalLocality = TemporalLocalityLevel::UNKNOWN;
+    unsigned ReuseDistance = UINT_MAX;
+    double ReuseFrequency = 0.0;
 
     // 多维度评分
     MultiDimensionalScore MultiDimScore;

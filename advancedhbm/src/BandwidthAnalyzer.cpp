@@ -6,6 +6,7 @@
 #include "PointerUtils.h"
 #include "Options.h"
 #include "LoopAnalyzer.h"
+
 #include "llvm/IR/Instructions.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -23,7 +24,7 @@ using namespace MyHBM;
 
 // 计算访问指令的带宽得分
 double BandwidthAnalyzer::computeAccessScore(
-    
+
     Instruction *I,
     bool isWrite,
     MallocRecord &MR)
@@ -260,6 +261,21 @@ double BandwidthAnalyzer::computeAccessScore(
                 MR.VectorScore += VectorBonus;
                 base += VectorBonus;
             }
+        }
+        // ===== Add temporal locality analysis =====
+        if (PtrOperand)
+        {
+            Function *F = I->getFunction();
+            double temporalScore = computeTemporalLocalityScore(PtrOperand, F);
+
+            // Store temporal analysis results in MallocRecord for later use
+            MR.TemporalLocalityScore = temporalScore;
+
+            // Adjust base score based on temporal locality
+            base += temporalScore;
+
+            // Debug output
+            errs() << "  Adding temporal locality score: " << temporalScore << "\n";
         }
 
         // 检查函数是否包含SIMD内部函数
@@ -587,10 +603,60 @@ void BandwidthAnalyzer::explorePointerUsers(
 
 // 计算带宽得分
 double BandwidthAnalyzer::computeBandwidthScore(uint64_t approximateBytes, double approximateTime)
-{   
+{
     errs() << "===== Function:computeBandwidthScore =====\n";
     if (approximateTime <= 0.0)
         approximateTime = 1.0;
     double bwGBs = (double)approximateBytes / (1024.0 * 1024.0 * 1024.0) / approximateTime;
     return bwGBs * Options::BandwidthScale;
+}
+
+// Compute score based on temporal locality
+double BandwidthAnalyzer::computeTemporalLocalityScore(Value *Ptr, Function *F)
+{
+    errs() << "===== Function:computeTemporalLocalityScore =====\n";
+    if (!Ptr || !F)
+        return 0.0;
+
+    // Use the TemporalLocalityAnalyzer to assess temporal locality
+    TemporalLocalityInfo TLInfo = TLA.analyzeTemporalLocality(Ptr, *F);
+
+    // Map locality level to score adjustment
+    double score = 0.0;
+
+    switch (TLInfo.level)
+    {
+    case TemporalLocalityLevel::EXCELLENT:
+        // Excellent temporal locality might actually reduce HBM benefit
+        // since CPU caches would be very effective
+        score = -15.0; // Penalty for excellent local caching
+        break;
+    case TemporalLocalityLevel::GOOD:
+        // Good locality slightly reduces HBM benefit
+        score = -5.0;
+        break;
+    case TemporalLocalityLevel::MODERATE:
+        // Moderate locality is neutral
+        score = 0.0;
+        break;
+    case TemporalLocalityLevel::POOR:
+        // Poor locality increases HBM benefit as caches are ineffective
+        score = 20.0;
+        break;
+    default:
+        score = 0.0;
+        break;
+    }
+
+    // Consider reuse distance - very short reuse distances benefit more from CPU cache
+    if (TLInfo.estimatedReuseDistance < 10)
+    {
+        score -= 10.0;
+    }
+    else if (TLInfo.estimatedReuseDistance > 1000)
+    {
+        score += 10.0;
+    }
+
+    return score;
 }
