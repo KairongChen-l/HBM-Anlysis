@@ -76,11 +76,8 @@ namespace MyHBM
     ProfileGuidedInfo ProfileInfo;
     double ProfileAdjustedScore = 0.0;
 
-    // Temporal locality 
-    double TemporalLocalityScore = 0.0;
-    TemporalLocalityLevel TemporalLocality = TemporalLocalityLevel::UNKNOWN;
-    unsigned ReuseDistance = UINT_MAX;
-    double ReuseFrequency = 0.0;
+    // 局部性分析
+    TemporalLocalityInfo TemporalLocalityData;
 
     // 多维度评分
     MultiDimensionalScore MultiDimScore;

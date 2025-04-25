@@ -27,13 +27,13 @@ namespace MyHBM
         // 处理分析结果，执行转换（替换malloc调用为HBM版本）
         void processMallocRecords(llvm::Module &M, llvm::SmallVectorImpl<MallocRecord *> &AllMallocs);
 
-        // 生成分析报告（纯文本或JSON）
+        // 生成JSON分析报告
         void generateReport(const llvm::Module &M, llvm::ArrayRef<MallocRecord *> AllMallocs, bool JSONOutput);
 
         // 获取调用指令的源代码位置
         std::string getSourceLocation(llvm::CallInst *CI);
 
-        // 创建JSON对象 - 抽取重复代码
+        // 创建JSON对象
         llvm::json::Object createMallocRecordJSON(const MallocRecord *MR, bool includeExtendedInfo = true);
 
         // 默认HBM容量常量

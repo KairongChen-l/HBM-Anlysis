@@ -429,18 +429,18 @@ double FunctionAnalysisPass::analyzeMallocStatic(
     }
 
     // Consider temporal locality
-    if (MR.TemporalLocalityScore != 0.0)
+    if (MR.TemporalLocalityData.temporalLocalityScore != 0.0)
     {
         // Temporal locality factors are already incorporated in the score during
         // the bandwidth analysis, but we might want to adjust here based on the
         // overall pattern
-        if (MR.TemporalLocality == TemporalLocalityLevel::POOR)
+        if (MR.TemporalLocalityData.level == TemporalLocalityLevel::POOR)
         {
             // Poor temporal locality means CPU caches are ineffective
             // This makes HBM more beneficial
             Score += 5.0;
         }
-        else if (MR.TemporalLocality == TemporalLocalityLevel::EXCELLENT)
+        else if (MR.TemporalLocalityData.level == TemporalLocalityLevel::EXCELLENT)
         {
             // Excellent locality might make CPU caches more effective
             // This could reduce the relative benefit of HBM

@@ -262,14 +262,14 @@ double BandwidthAnalyzer::computeAccessScore(
                 base += VectorBonus;
             }
         }
-        // ===== Add temporal locality analysis =====
+        // temporal locality analysis 时间局部性分析
         if (PtrOperand)
         {
             Function *F = I->getFunction();
             double temporalScore = computeTemporalLocalityScore(PtrOperand, F);
 
             // Store temporal analysis results in MallocRecord for later use
-            MR.TemporalLocalityScore = temporalScore;
+            MR.TemporalLocalityData.temporalLocalityScore = temporalScore;
 
             // Adjust base score based on temporal locality
             base += temporalScore;

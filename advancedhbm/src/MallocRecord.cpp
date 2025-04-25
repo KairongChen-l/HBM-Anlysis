@@ -111,6 +111,8 @@ std::string MallocRecord::ToJsonString() const
     ContentionObj["contention_score"] = ContentionData.contentionScore;
     Obj["contention_info"] = std::move(ContentionObj);
 
+    json::Object TemporalObj;
+
     // 转换为字符串
     std::string JsonStr;
     // 预分配足够的空间，避免频繁重新分配
