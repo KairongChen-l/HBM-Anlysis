@@ -57,7 +57,6 @@ namespace MyHBM
         llvm::AAResults &AA;
         llvm::MemorySSA &MSSA;
 
-        // Add this with the other analyzers
         TemporalLocalityAnalyzer TLA;
         // Add a temporal locality score field to track this aspect
         double computeTemporalLocalityScore(Value *Ptr, Function *F);
