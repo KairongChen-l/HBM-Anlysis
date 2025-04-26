@@ -73,11 +73,17 @@ namespace MyHBM
     double ConflictPenalty = 0.0;
 
     // 新增的动态特性成员
-    ProfileGuidedInfo ProfileInfo;
-    double ProfileAdjustedScore = 0.0;
+    // ProfileGuidedInfo ProfileInfo;
+    // double ProfileAdjustedScore = 0.0;
 
     // 局部性分析
     TemporalLocalityInfo TemporalLocalityData;
+    // Bank conflict analysis
+    int BankConflictSeverity = 0;       // Maps to BankConflictSeverity enum
+    int BankConflictType = 0;           // Maps to BankConflictType enum
+    double BankConflictRate = 0.0;      // Estimated percentage of conflicting accesses
+    double BankConflictScore = 0.0;     // Score adjustment for HBM suitability
+    double BankPerformanceImpact = 1.0; // Estimated performance impact (1.0 = none)
 
     // 多维度评分
     MultiDimensionalScore MultiDimScore;

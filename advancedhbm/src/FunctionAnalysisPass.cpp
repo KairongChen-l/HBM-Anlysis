@@ -448,6 +448,24 @@ double FunctionAnalysisPass::analyzeMallocStatic(
         }
     }
 
+    // Consider bank conflict impact on HBM effectiveness
+    if (MR.BankConflictScore != 0.0)
+    {
+        // Bank conflict scores are already incorporated during bandwidth analysis,
+        // but we might want to weight them based on allocation size
+
+        // For large allocations, bank conflicts can be more impactful
+        if (MR.AllocSize > 1024 * 1024)
+        {                                        // > 1MB
+            Score += MR.BankConflictScore * 1.5; // Increase impact by 50%
+        }
+
+        // Log the impact
+        errs() << "  Bank conflict adjustment to final score: "
+               << (MR.BankConflictScore * (MR.AllocSize > 1024 * 1024 ? 1.5 : 1.0))
+               << "\n";
+    }
+
     // 根据内存访问模式加分
     if (MR.IsStreamAccess)
         Score += Options::StreamBonus;

@@ -278,7 +278,7 @@ void ModuleTransformPass::loadExternalProfile(Module &M, SmallVectorImpl<MallocR
                 if (isStrm)
                     MR->Score += Options::StreamBonus;
                 // TODO 添加这一行
-                MR->ProfileAdjustedScore = MR->Score;
+                //MR->ProfileAdjustedScore = MR->Score;
             }
         }
     }
@@ -310,8 +310,8 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
 
     // 添加一个固定阈值替代ProfileGuidedAnalyzer
     AdaptiveThresholdInfo ThresholdInfo;
-    ThresholdInfo.baseThreshold = 30.0; // 设置一个合理的固定阈值
-    ThresholdInfo.adjustedThreshold = 30.0;
+    ThresholdInfo.baseThreshold = 50.0; // 设置一个合理的固定阈值
+    ThresholdInfo.adjustedThreshold = 50.0;
     ThresholdInfo.adjustmentReason = "使用固定阈值（禁用ProfileGuidedAnalyzer）";
 
     errs() << "[HBM] Using fixed threshold: " << ThresholdInfo.adjustedThreshold << "\n";
@@ -372,7 +372,7 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
             std::string location = getSourceLocation(MR->MallocCall);
             errs() << "[HBM] Moving to HBM: " << location
                    << " | Size: " << MR->AllocSize << " bytes"
-                   << " | Score: " << MR->ProfileAdjustedScore
+                   << " | Score: " << MR->Score
                    << " | Bandwidth: " << MR->MultiDimScore.bandwidthScore
                    << " | Latency: " << MR->MultiDimScore.latencyScore
                    << " | Utilization: " << MR->MultiDimScore.utilizationScore

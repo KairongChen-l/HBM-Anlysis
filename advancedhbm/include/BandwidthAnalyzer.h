@@ -1,15 +1,16 @@
 #ifndef MYHBM_BANDWIDTH_ANALYZER_H
 #define MYHBM_BANDWIDTH_ANALYZER_H
 
-// 测试这个头文件
+// 测试这两个头文件
 #include "TemporalLocalityAnalyzer.h"
+#include "BankConflictAnalyzer.h"
 
 #include "llvm/IR/Instruction.h"
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/MemorySSA.h"
-//#include "llvm/IR/Type.h"
+// #include "llvm/IR/Type.h"
 #include "MallocRecord.h"
 #include <unordered_set>
 
@@ -26,7 +27,7 @@ namespace MyHBM
             llvm::LoopInfo &LI,
             llvm::AAResults &AA,
             llvm::MemorySSA &MSSA)
-            : SE(SE), LI(LI), AA(AA), MSSA(MSSA),TLA(SE, LI){}
+            : SE(SE), LI(LI), AA(AA), MSSA(MSSA), TLA(SE, LI), BCA(SE, LI) {}
 
         // 计算访问指令的带宽得分
         double computeAccessScore(
@@ -56,10 +57,17 @@ namespace MyHBM
         llvm::LoopInfo &LI;
         llvm::AAResults &AA;
         llvm::MemorySSA &MSSA;
-
+        
+        //以下为新添加的分析
         TemporalLocalityAnalyzer TLA;
         // Add a temporal locality score field to track this aspect
         double computeTemporalLocalityScore(Value *Ptr, Function *F);
+
+        // Add this with other analyzers
+        BankConflictAnalyzer BCA;
+
+        // Add bank conflict analysis method
+        double analyzeBankConflicts(Value *Ptr, MallocRecord &MR);
     };
 
 } // namespace MyHBM

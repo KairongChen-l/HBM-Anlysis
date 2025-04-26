@@ -6,6 +6,8 @@
 #include "PointerUtils.h"
 #include "Options.h"
 #include "LoopAnalyzer.h"
+//新添加的头文件
+#include "BankConflictAnalyzer.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -276,6 +278,19 @@ double BandwidthAnalyzer::computeAccessScore(
 
             // Debug output
             errs() << "  Adding temporal locality score: " << temporalScore << "\n";
+        }
+
+        // ===== Add bank conflict analysis =====
+        if (PtrOperand)
+        {
+            // Analyze potential bank conflicts and adjust score accordingly
+            double bankConflictScore = analyzeBankConflicts(PtrOperand, MR);
+
+            // Adjust base score based on bank conflict analysis
+            base += bankConflictScore;
+
+            // Debug output
+            errs() << "  Adding bank conflict score adjustment: " << bankConflictScore << "\n";
         }
 
         // 检查函数是否包含SIMD内部函数
@@ -659,4 +674,42 @@ double BandwidthAnalyzer::computeTemporalLocalityScore(Value *Ptr, Function *F)
     }
 
     return score;
+}
+// Analyze bank conflicts and adjust score
+double BandwidthAnalyzer::analyzeBankConflicts(Value *Ptr, MallocRecord &MR)
+{
+    errs() << "===== Function:analyzeBankConflicts =====\n";
+    if (!Ptr)
+        return 0.0;
+
+    // Find the function this pointer is used in
+    Function *F = nullptr;
+    if (auto *I = dyn_cast<Instruction>(Ptr))
+    {
+        F = I->getFunction();
+    }
+    else if (auto *Arg = dyn_cast<Argument>(Ptr))
+    {
+        F = Arg->getParent();
+    }
+    else
+    {
+        return 0.0; // Can't determine function
+    }
+
+    if (!F)
+        return 0.0;
+
+    // Analyze bank conflicts at function level
+    BankConflictInfo BCI = BCA.analyzeFunctionBankConflicts(Ptr, *F);
+
+    // Store results in MallocRecord for later use
+    MR.BankConflictSeverity = static_cast<int>(BCI.severity);
+    MR.BankConflictType = static_cast<int>(BCI.type);
+    MR.BankConflictRate = BCI.conflictRate;
+    MR.BankConflictScore = BCI.conflictScore;
+    MR.BankPerformanceImpact = BCI.performanceImpact;
+
+    // Return score adjustment based on bank conflict analysis
+    return BCI.conflictScore;
 }

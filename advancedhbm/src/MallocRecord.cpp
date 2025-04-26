@@ -7,7 +7,7 @@ using namespace MyHBM;
 
 // 生成记录的JSON表示
 std::string MallocRecord::ToJsonString() const
-{   
+{
     errs() << "===== Function:ToJsonString =====\n";
     json::Object Obj;
 
@@ -56,7 +56,7 @@ std::string MallocRecord::ToJsonString() const
     Obj["conflict_penalty"] = ConflictPenalty;
 
     // Profile调整的得分
-    Obj["profile_adjusted_score"] = ProfileAdjustedScore;
+    //Obj["profile_adjusted_score"] = ProfileAdjustedScore;
 
     // 多维度评分
     json::Object MultiDimObj;
@@ -111,7 +111,16 @@ std::string MallocRecord::ToJsonString() const
     ContentionObj["contention_score"] = ContentionData.contentionScore;
     Obj["contention_info"] = std::move(ContentionObj);
 
+    // temporal analysis
     json::Object TemporalObj;
+    // Bank conflict analysis
+    json::Object BankObj;
+    BankObj["conflict_severity"] = BankConflictSeverity;
+    BankObj["conflict_type"] = BankConflictType;
+    BankObj["conflict_rate"] = BankConflictRate;
+    BankObj["conflict_score"] = BankConflictScore;
+    BankObj["performance_impact"] = BankPerformanceImpact;
+    Obj["bank_conflicts"] = std::move(BankObj);
 
     // 转换为字符串
     std::string JsonStr;
