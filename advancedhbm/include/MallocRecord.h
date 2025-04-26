@@ -4,6 +4,7 @@
 #include "llvm/IR/Instruction.h"
 #include "AnalysisTypes.h"
 #include "TemporalLocalityAnalyzer.h"
+#include "DependencyChainAnalyzer.h"
 #include <string>
 #include <vector>
 
@@ -76,7 +77,7 @@ namespace MyHBM
     // ProfileGuidedInfo ProfileInfo;
     // double ProfileAdjustedScore = 0.0;
 
-    // 局部性分析
+    // Temporality 
     TemporalLocalityInfo TemporalLocalityData;
     // Bank conflict analysis
     int BankConflictSeverity = 0;       // Maps to BankConflictSeverity enum
@@ -84,6 +85,14 @@ namespace MyHBM
     double BankConflictRate = 0.0;      // Estimated percentage of conflicting accesses
     double BankConflictScore = 0.0;     // Score adjustment for HBM suitability
     double BankPerformanceImpact = 1.0; // Estimated performance impact (1.0 = none)
+
+    // Dependency chain analysis
+    double LatencySensitivityScore = 0.0;   // How sensitive to memory latency (0-1)
+    double BandwidthSensitivityScore = 0.0; // How sensitive to memory bandwidth (0-1)
+    bool IsLatencyBound = false;            // Whether more sensitive to latency than bandwidth
+    double CriticalPathLatency = 0.0;       // Longest critical path latency
+    double LongestPathMemoryRatio = 0.0;    // Ratio of memory ops in longest path
+    std::string DependencyAnalysis;         // Text analysis of dependency patterns
 
     // 多维度评分
     MultiDimensionalScore MultiDimScore;

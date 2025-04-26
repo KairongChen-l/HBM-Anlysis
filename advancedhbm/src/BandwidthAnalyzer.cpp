@@ -6,7 +6,7 @@
 #include "PointerUtils.h"
 #include "Options.h"
 #include "LoopAnalyzer.h"
-//新添加的头文件
+// 新添加的头文件
 #include "BankConflictAnalyzer.h"
 
 #include "llvm/IR/Instructions.h"
@@ -292,7 +292,18 @@ double BandwidthAnalyzer::computeAccessScore(
             // Debug output
             errs() << "  Adding bank conflict score adjustment: " << bankConflictScore << "\n";
         }
+        // ===== Add dependency chain analysis =====
+        if (PtrOperand)
+        {
+            // Analyze dependency chains and adjust score accordingly
+            double depChainScore = analyzeDependencyChains(PtrOperand, MR);
 
+            // Adjust base score based on dependency chain analysis
+            base += depChainScore;
+
+            // Debug output
+            errs() << "  Adding dependency chain score adjustment: " << depChainScore << "\n";
+        }
         // 检查函数是否包含SIMD内部函数
         Function *F = I->getFunction();
         if (F && VecAn.detectSIMDIntrinsics(*F))
@@ -712,4 +723,67 @@ double BandwidthAnalyzer::analyzeBankConflicts(Value *Ptr, MallocRecord &MR)
 
     // Return score adjustment based on bank conflict analysis
     return BCI.conflictScore;
+}
+
+// Analyze dependency chains and adjust score
+double BandwidthAnalyzer::analyzeDependencyChains(Value *Ptr, MallocRecord &MR)
+{
+    errs() << "===== Function:analyzeDependencyChains =====\n";
+    if (!Ptr)
+        return 0.0;
+
+    // Find the function this pointer is used in
+    Function *F = nullptr;
+    if (auto *I = dyn_cast<Instruction>(Ptr))
+    {
+        F = I->getFunction();
+    }
+    else if (auto *Arg = dyn_cast<Argument>(Ptr))
+    {
+        F = Arg->getParent();
+    }
+    else
+    {
+        return 0.0; // Can't determine function
+    }
+
+    if (!F)
+        return 0.0;
+
+    // Create a dependency chain analyzer for this function
+    DependencyChainAnalyzer DCA(SE, LI, *F);
+
+    // Analyze pointer's dependency characteristics
+    DependencyInfo DI = DCA.analyzeDependencies(Ptr);
+
+    // Store results in MallocRecord for later use
+    MR.LatencySensitivityScore = DI.LatencySensitivityScore;
+    MR.BandwidthSensitivityScore = DI.BandwidthSensitivityScore;
+    MR.IsLatencyBound = DI.IsLatencyBound;
+    MR.CriticalPathLatency = DI.CriticalPathLatency;
+    MR.LongestPathMemoryRatio = DI.LongestPathMemoryRatio;
+    MR.DependencyAnalysis = DI.Analysis;
+
+    // Return score adjustment based on dependency analysis
+    double scoreAdjustment = 0.0;
+
+    // If primarily bandwidth sensitive, increase HBM suitability
+    if (!DI.IsLatencyBound && DI.BandwidthSensitivityScore > 0.5)
+    {
+        scoreAdjustment += DI.BandwidthSensitivityScore * 20.0;
+    }
+
+    // If primarily latency sensitive but with high memory dependency ratio,
+    // HBM can still help by reducing latency
+    else if (DI.IsLatencyBound && DI.LongestPathMemoryRatio > 0.4)
+    {
+        scoreAdjustment += DI.LatencySensitivityScore * 10.0;
+    }
+    // If latency sensitive but not memory dominated, HBM helps less
+    else if (DI.IsLatencyBound)
+    {
+        scoreAdjustment += DI.LatencySensitivityScore * 5.0;
+    }
+
+    return scoreAdjustment;
 }

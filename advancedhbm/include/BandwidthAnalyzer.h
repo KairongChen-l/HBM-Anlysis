@@ -1,9 +1,10 @@
 #ifndef MYHBM_BANDWIDTH_ANALYZER_H
 #define MYHBM_BANDWIDTH_ANALYZER_H
 
-// 测试这两个头文件
+// 测试这三个头文件
 #include "TemporalLocalityAnalyzer.h"
 #include "BankConflictAnalyzer.h"
+#include "DependencyChainAnalyzer.h"
 
 #include "llvm/IR/Instruction.h"
 #include "llvm/Analysis/ScalarEvolution.h"
@@ -57,8 +58,8 @@ namespace MyHBM
         llvm::LoopInfo &LI;
         llvm::AAResults &AA;
         llvm::MemorySSA &MSSA;
-        
-        //以下为新添加的分析
+
+        // 以下为新添加的分析
         TemporalLocalityAnalyzer TLA;
         // Add a temporal locality score field to track this aspect
         double computeTemporalLocalityScore(Value *Ptr, Function *F);
@@ -68,6 +69,8 @@ namespace MyHBM
 
         // Add bank conflict analysis method
         double analyzeBankConflicts(Value *Ptr, MallocRecord &MR);
+        
+        double analyzeDependencyChains(Value *Ptr, MallocRecord &MR);
     };
 
 } // namespace MyHBM

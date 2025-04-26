@@ -56,7 +56,7 @@ std::string MallocRecord::ToJsonString() const
     Obj["conflict_penalty"] = ConflictPenalty;
 
     // Profile调整的得分
-    //Obj["profile_adjusted_score"] = ProfileAdjustedScore;
+    // Obj["profile_adjusted_score"] = ProfileAdjustedScore;
 
     // 多维度评分
     json::Object MultiDimObj;
@@ -121,6 +121,16 @@ std::string MallocRecord::ToJsonString() const
     BankObj["conflict_score"] = BankConflictScore;
     BankObj["performance_impact"] = BankPerformanceImpact;
     Obj["bank_conflicts"] = std::move(BankObj);
+
+    // Dependency chain analysis
+    json::Object DepObj;
+    DepObj["latency_sensitivity"] = LatencySensitivityScore;
+    DepObj["bandwidth_sensitivity"] = BandwidthSensitivityScore;
+    DepObj["is_latency_bound"] = IsLatencyBound;
+    DepObj["critical_path_latency"] = CriticalPathLatency;
+    DepObj["memory_ratio_in_path"] = LongestPathMemoryRatio;
+    DepObj["analysis"] = DependencyAnalysis;
+    Obj["dependency_analysis"] = std::move(DepObj);
 
     // 转换为字符串
     std::string JsonStr;

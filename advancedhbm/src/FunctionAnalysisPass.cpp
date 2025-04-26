@@ -466,6 +466,38 @@ double FunctionAnalysisPass::analyzeMallocStatic(
                << "\n";
     }
 
+    if (MR.LatencySensitivityScore > 0.0 || MR.BandwidthSensitivityScore > 0.0)
+    {
+        // Adjust score based on whether it's latency or bandwidth bound
+        if (MR.IsLatencyBound)
+        {
+            // For latency-bound allocations, HBM helps but not as much
+            if (MR.LongestPathMemoryRatio > 0.7)
+            {
+                // Memory dominates the critical path, so HBM can still help significantly
+                Score += 10.0;
+            }
+            else
+            {
+                // Memory is on critical path but doesn't dominate, so HBM helps less
+                Score += 5.0;
+            }
+        }
+        else
+        {
+            // Bandwidth-bound allocations benefit strongly from HBM
+            Score += MR.BandwidthSensitivityScore * 20.0;
+
+            // If also somewhat latency sensitive, further bonus
+            if (MR.LatencySensitivityScore > 0.3)
+            {
+                Score += 5.0;
+            }
+        }
+
+        // Log the analysis
+        errs() << "  Dependency analysis: " << MR.DependencyAnalysis << "\n";
+    }
     // 根据内存访问模式加分
     if (MR.IsStreamAccess)
         Score += Options::StreamBonus;
