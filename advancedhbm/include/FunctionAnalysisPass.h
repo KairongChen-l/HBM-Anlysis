@@ -33,7 +33,7 @@ namespace MyHBM
             MallocRecord &MR);
 
         // 匹配malloc对应的free调用
-        void matchFreeCalls(FunctionMallocInfo &FMI, std::vector<llvm::CallInst *> &freeCalls);
+        //void matchFreeCalls(FunctionMallocInfo &FMI, std::vector<llvm::CallInst *> &freeCalls);
 
         void setSourceLocation(llvm::CallInst *CI, llvm::Function &F, MyHBM::MallocRecord &MR);
         // 用于PassBuilder的注册

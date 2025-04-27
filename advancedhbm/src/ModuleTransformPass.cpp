@@ -115,7 +115,7 @@ llvm::json::Object ModuleTransformPass::createMallocRecordJSON(const MallocRecor
 
     // 其它状态标记
     obj["forced_hot"] = MR->UserForcedHot;
-    obj["unmatched_free"] = MR->UnmatchedFree;
+    // obj["unmatched_free"] = MR->UnmatchedFree;
 
     // 添加扩展分析结果（如果需要）
     if (includeExtendedInfo)
@@ -278,7 +278,7 @@ void ModuleTransformPass::loadExternalProfile(Module &M, SmallVectorImpl<MallocR
                 if (isStrm)
                     MR->Score += Options::StreamBonus;
                 // TODO 添加这一行
-                //MR->ProfileAdjustedScore = MR->Score;
+                // MR->ProfileAdjustedScore = MR->Score;
             }
         }
     }
@@ -286,89 +286,76 @@ void ModuleTransformPass::loadExternalProfile(Module &M, SmallVectorImpl<MallocR
 
 void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<MallocRecord *> &AllMallocs)
 {
-    /*
-        目前暂时移除ProfileGuided的功能，如果后续完善可以加上
-    */
-    // 创建ProfileGuidedAnalyzer计算自适应阈值
-    // ProfileGuidedAnalyzer PGAnalyzer;
-
-    // 准备输入参数
-    // std::vector<MallocRecord> AllMallocsVec;
-    // for (auto *MR : AllMallocs)
-    // {
-    //     if (MR)
-    //         AllMallocsVec.push_back(*MR);
-    // }
-
-    // 计算自适应阈值
-    // AdaptiveThresholdInfo ThresholdInfo = PGAnalyzer.computeAdaptiveThreshold(M, AllMallocsVec);
-
-    // 输出自适应阈值信息
-    // errs() << "[HBM] Using adaptive threshold: " << ThresholdInfo.adjustedThreshold
-    //        << " (base: " << ThresholdInfo.baseThreshold
-    //        << "): " << ThresholdInfo.adjustmentReason << "\n";
-
-    // 添加一个固定阈值替代ProfileGuidedAnalyzer
+    // Use fixed threshold settings
     AdaptiveThresholdInfo ThresholdInfo;
-    ThresholdInfo.baseThreshold = 50.0; // 设置一个合理的固定阈值
+    ThresholdInfo.baseThreshold = 50.0;
     ThresholdInfo.adjustedThreshold = 50.0;
-    ThresholdInfo.adjustmentReason = "使用固定阈值（禁用ProfileGuidedAnalyzer）";
+    ThresholdInfo.adjustmentReason = "Using fixed threshold (disabled ProfileGuidedAnalyzer)";
 
     errs() << "[HBM] Using fixed threshold: " << ThresholdInfo.adjustedThreshold << "\n";
 
-    // 按得分对MallocRecords排序，优先处理得分高的记录
+    // Sort MallocRecords by score, prioritizing higher scores
     std::sort(AllMallocs.begin(), AllMallocs.end(),
               [](const MallocRecord *A, const MallocRecord *B)
               {
-                  // 处理空指针情况
-                  if (!A)
-                      return false;
-                  if (!B)
-                      return true;
+                  if (!A) return false;
+                  if (!B) return true;
 
-                  // 首先按用户强制设置的优先级排序
+                  // First sort by user force settings
                   if (A->UserForcedHot != B->UserForcedHot)
                       return (A->UserForcedHot > B->UserForcedHot);
-                  // 然后按Profile调整后的得分排序
-                  // return (A->ProfileAdjustedScore > B->ProfileAdjustedScore);
+                  // Then sort by score
                   return (A->Score > B->Score);
               });
 
-    // 初始化HBM容量跟踪和统计
+    // Initialize HBM capacity tracking and statistics
     uint64_t used = 0ULL;
     uint64_t capacity = DefaultHBMCapacity;
 
-    // 创建HBM分配和释放函数
+    // Create HBM allocation function
     LLVMContext &Ctx = M.getContext();
     auto *Int64Ty = Type::getInt64Ty(Ctx);
     auto *Int8PtrTy = PointerType::getUnqual(Type::getInt8Ty(Ctx));
-    auto *VoidTy = Type::getVoidTy(Ctx);
 
-    // 在替换函数的时候需要准备好通过C语言编写好的内存分配接口
+    // Get or create the required functions
     FunctionCallee HBMAlloc = M.getOrInsertFunction(
         "hbm_malloc",
         FunctionType::get(Int8PtrTy, {Int64Ty}, false));
 
-    FunctionCallee HBMFree = M.getOrInsertFunction(
-        "hbm_free",
-        FunctionType::get(VoidTy, {Int8PtrTy}, false));
+    // Initialize memory manager function
+    FunctionCallee HBMInit = M.getOrInsertFunction(
+        "hbm_memory_init",
+        FunctionType::get(Type::getVoidTy(Ctx), {}, false));
 
-    // 如果应该移到HBM
-    // 处理每个MallocRecord，决定是否移到HBM
+    // Make sure we call the initialization function at program start
+    if (Function *MainFunc = M.getFunction("main")) {
+        // Insert call to hbm_memory_init at the beginning of main
+        if (!MainFunc->empty() && !MainFunc->front().empty()) {
+            IRBuilder<> Builder(&MainFunc->front().front());
+            Builder.CreateCall(HBMInit);
+            errs() << "[HBM] Inserted initialization call in main\n";
+        }
+    }
+
+    // Keep track of malloc functions we've found
+    std::unordered_map<Function*, StringRef> mallocFuncs;
+    std::unordered_map<Function*, StringRef> allocFuncs;
+
+    // Process each MallocRecord and decide if it should be moved to HBM
     for (auto *MR : AllMallocs)
     {
-        // 跳过无效记录
-        if (!MR->MallocCall || !MR->MallocCall)
+        // Skip invalid records
+        if (!MR || !MR->MallocCall)
             continue;
 
-        // TODO 检查是否应该移到HBM
-        bool shouldUseHBM = MR->UserForcedHot ||                             // 用户强制指定
-                            (MR->Score >= ThresholdInfo.adjustedThreshold && // 得分高于阈值
-                             (used + MR->AllocSize <= capacity));            // 且HBM有足够空间
+        // Check if it should use HBM
+        bool shouldUseHBM = MR->UserForcedHot || 
+                           (MR->Score >= ThresholdInfo.adjustedThreshold && 
+                            (used + MR->AllocSize <= capacity));
 
         if (shouldUseHBM)
         {
-            // 提供详细的决策信息输出
+            // Provide detailed decision output
             std::string location = getSourceLocation(MR->MallocCall);
             errs() << "[HBM] Moving to HBM: " << location
                    << " | Size: " << MR->AllocSize << " bytes"
@@ -379,35 +366,43 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
                    << " | Size efficiency: " << MR->MultiDimScore.sizeEfficiencyScore
                    << "\n";
 
-            // 获取被调用函数的值
-            // 在LLVM 18中，使用setCalledOperand替代setCalledFunction
+            // Get the called function value
             Value *HBMAllocCallee = HBMAlloc.getCallee();
             if (HBMAllocCallee)
             {
-                // 替换malloc调用为hbm_malloc
+                // Replace malloc call with hbm_malloc
                 MR->MallocCall->setCalledOperand(HBMAllocCallee);
 
-                // 更新已使用的HBM空间
+                // Update used HBM space
                 used += MR->AllocSize;
-
-                // 替换所有对应的free调用为hbm_free
-                Value *HBMFreeCallee = HBMFree.getCallee();
-                if (HBMFreeCallee)
-                {
-                    for (auto *fc : MR->FreeCalls)
-                    {
-                        if (fc)
-                        { // 检查空指针
-                            fc->setCalledOperand(HBMFreeCallee);
-                        }
+                
+                // Keep track of which function we replaced
+                if (Function *F = MR->MallocCall->getCalledFunction()) {
+                    if (F->getName() == "malloc") {
+                        mallocFuncs[F] = "malloc";
+                    } else if (F->getName().startswith("_Znwm") || F->getName().startswith("_Znam")) {
+                        mallocFuncs[F] = "new";
+                    } else if (F->getName().contains("alloc") || F->getName().contains("Alloc")) {
+                        allocFuncs[F] = F->getName();
                     }
                 }
             }
         }
     }
 
-    // 输出HBM使用统计
+    // Output HBM usage statistics
     errs() << "[ModuleTransformPass] HBM used: " << used << " bytes\n";
+    
+    // Output functions that were replaced
+    errs() << "[ModuleTransformPass] Replaced malloc functions:\n";
+    for (auto &Pair : mallocFuncs) {
+        errs() << "  - " << Pair.second << "\n";
+    }
+    
+    errs() << "[ModuleTransformPass] Replaced alloc functions:\n";
+    for (auto &Pair : allocFuncs) {
+        errs() << "  - " << Pair.second << "\n";
+    }
 }
 
 void ModuleTransformPass::generateReport(const Module &M, ArrayRef<MallocRecord *> AllMallocs, bool JSONOutput)

@@ -24,7 +24,7 @@ std::string MallocRecord::ToJsonString() const
     Obj["is_thread_partitioned"] = IsThreadPartitioned;
     Obj["may_conflict"] = MayConflict;
     Obj["user_forced_hot"] = UserForcedHot;
-    Obj["unmatched_free"] = UnmatchedFree;
+    //Obj["unmatched_free"] = UnmatchedFree;
 
     // 动态Profile
     Obj["dynamic_access_count"] = DynamicAccessCount;

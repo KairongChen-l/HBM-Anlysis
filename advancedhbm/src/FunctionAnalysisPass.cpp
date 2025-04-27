@@ -278,7 +278,7 @@ FunctionAnalysisPass::run(Function &F, FunctionAnalysisManager &FAM)
     }
 
     // 匹配malloc和free调用
-    matchFreeCalls(FMI, freeCalls);
+    //matchFreeCalls(FMI, freeCalls);
 
     return FMI;
 }
@@ -507,150 +507,150 @@ double FunctionAnalysisPass::analyzeMallocStatic(
     return Score;
 }
 
-void FunctionAnalysisPass::matchFreeCalls(FunctionMallocInfo &FMI, std::vector<CallInst *> &freeCalls)
-{
-    // 第一遍：直接匹配
-    for (auto &MR : FMI.MallocRecords)
-    {
-        if (!MR.MallocCall)
-            continue;
+// void FunctionAnalysisPass::matchFreeCalls(FunctionMallocInfo &FMI, std::vector<CallInst *> &freeCalls)
+// {
+//     // 第一遍：直接匹配
+//     for (auto &MR : FMI.MallocRecords)
+//     {
+//         if (!MR.MallocCall)
+//             continue;
 
-        Value *mallocPtr = MR.MallocCall;
-        bool matched = false;
+//         Value *mallocPtr = MR.MallocCall;
+//         bool matched = false;
 
-        for (auto iter = freeCalls.begin(); iter != freeCalls.end();)
-        {
-            CallInst *fc = *iter;
-            if (!fc || fc->arg_size() < 1)
-            {
-                ++iter;
-                continue;
-            }
+//         for (auto iter = freeCalls.begin(); iter != freeCalls.end();)
+//         {
+//             CallInst *fc = *iter;
+//             if (!fc || fc->arg_size() < 1)
+//             {
+//                 ++iter;
+//                 continue;
+//             }
 
-            Value *freeArg = fc->getArgOperand(0);
-            if (!freeArg)
-            {
-                ++iter;
-                continue;
-            }
+//             Value *freeArg = fc->getArgOperand(0);
+//             if (!freeArg)
+//             {
+//                 ++iter;
+//                 continue;
+//             }
 
-            Value *base = nullptr;
-            try
-            {
-                base = PointerUtils::resolveBasePointer(freeArg);
-            }
-            catch (const std::exception &)
-            {
-                // 如果解析失败，继续尝试下一个
-                ++iter;
-                continue;
-            }
+//             Value *base = nullptr;
+//             try
+//             {
+//                 base = PointerUtils::resolveBasePointer(freeArg);
+//             }
+//             catch (const std::exception &)
+//             {
+//                 // 如果解析失败，继续尝试下一个
+//                 ++iter;
+//                 continue;
+//             }
 
-            if (base == mallocPtr)
-            {
-                MR.FreeCalls.push_back(fc);
-                matched = true;
-                // 从freeCalls中移除已匹配的项，避免重复匹配
-                iter = freeCalls.erase(iter);
-            }
-            else
-            {
-                ++iter;
-            }
-        }
+//             if (base == mallocPtr)
+//             {
+//                 MR.FreeCalls.push_back(fc);
+//                 matched = true;
+//                 // 从freeCalls中移除已匹配的项，避免重复匹配
+//                 iter = freeCalls.erase(iter);
+//             }
+//             else
+//             {
+//                 ++iter;
+//             }
+//         }
 
-        if (!matched)
-        {
-            MR.UnmatchedFree = true;
-            // 未匹配free可能是因为:
-            // 1. 真的没有释放 - 内存泄漏
-            // 2. 在另一个函数中释放
-            // 3. 通过间接调用释放
+//         if (!matched)
+//         {
+//             MR.UnmatchedFree = true;
+//             // 未匹配free可能是因为:
+//             // 1. 真的没有释放 - 内存泄漏
+//             // 2. 在另一个函数中释放
+//             // 3. 通过间接调用释放
 
-            // 对于长寿命的分配，未匹配free不应该过度惩罚
-            if (MR.DataFlowData.hasInitPhase && MR.DataFlowData.hasReadOnlyPhase)
-            {
-                // 可能是长寿命对象，减轻惩罚
-                MR.Score -= 5.0;
-            }
-            else
-            {
-                // 标准惩罚
-                MR.Score -= 10.0;
-            }
-        }
-    }
+//             // 对于长寿命的分配，未匹配free不应该过度惩罚
+//             if (MR.DataFlowData.hasInitPhase && MR.DataFlowData.hasReadOnlyPhase)
+//             {
+//                 // 可能是长寿命对象，减轻惩罚
+//                 MR.Score -= 5.0;
+//             }
+//             else
+//             {
+//                 // 标准惩罚
+//                 MR.Score -= 10.0;
+//             }
+//         }
+//     }
 
-    // 第二遍：尝试使用别名分析进行更复杂的匹配
-    if (!freeCalls.empty() && !FMI.MallocRecords.empty())
-    {
-        for (auto &MR : FMI.MallocRecords)
-        {
-            if (!MR.UnmatchedFree || !MR.MallocCall)
-                continue;
+//     // 第二遍：尝试使用别名分析进行更复杂的匹配
+//     if (!freeCalls.empty() && !FMI.MallocRecords.empty())
+//     {
+//         for (auto &MR : FMI.MallocRecords)
+//         {
+//             if (!MR.UnmatchedFree || !MR.MallocCall)
+//                 continue;
 
-            // 已经找到匹配项，跳过
-            if (!MR.FreeCalls.empty())
-                continue;
+//             // 已经找到匹配项，跳过
+//             if (!MR.FreeCalls.empty())
+//                 continue;
 
-            Value *mallocPtr = MR.MallocCall;
-            bool matched = false;
+//             Value *mallocPtr = MR.MallocCall;
+//             bool matched = false;
 
-            for (auto iter = freeCalls.begin(); iter != freeCalls.end();)
-            {
-                CallInst *fc = *iter;
-                if (!fc || fc->arg_size() < 1)
-                {
-                    ++iter;
-                    continue;
-                }
+//             for (auto iter = freeCalls.begin(); iter != freeCalls.end();)
+//             {
+//                 CallInst *fc = *iter;
+//                 if (!fc || fc->arg_size() < 1)
+//                 {
+//                     ++iter;
+//                     continue;
+//                 }
 
-                Value *freeArg = fc->getArgOperand(0);
-                if (!freeArg)
-                {
-                    ++iter;
-                    continue;
-                }
+//                 Value *freeArg = fc->getArgOperand(0);
+//                 if (!freeArg)
+//                 {
+//                     ++iter;
+//                     continue;
+//                 }
 
-                // 通过数据流分析进行间接匹配
-                // 例如：检查是否有指针运算或类型转换
-                bool potentialMatch = false;
+//                 // 通过数据流分析进行间接匹配
+//                 // 例如：检查是否有指针运算或类型转换
+//                 bool potentialMatch = false;
 
-                if (auto *GEP = dyn_cast<GetElementPtrInst>(freeArg))
-                {
-                    Value *gepPtr = GEP->getPointerOperand();
-                    if (gepPtr == mallocPtr)
-                    {
-                        potentialMatch = true;
-                    }
-                }
-                else if (auto *BC = dyn_cast<BitCastInst>(freeArg))
-                {
-                    Value *srcPtr = BC->getOperand(0);
-                    if (srcPtr == mallocPtr)
-                    {
-                        potentialMatch = true;
-                    }
-                }
+//                 if (auto *GEP = dyn_cast<GetElementPtrInst>(freeArg))
+//                 {
+//                     Value *gepPtr = GEP->getPointerOperand();
+//                     if (gepPtr == mallocPtr)
+//                     {
+//                         potentialMatch = true;
+//                     }
+//                 }
+//                 else if (auto *BC = dyn_cast<BitCastInst>(freeArg))
+//                 {
+//                     Value *srcPtr = BC->getOperand(0);
+//                     if (srcPtr == mallocPtr)
+//                     {
+//                         potentialMatch = true;
+//                     }
+//                 }
 
-                if (potentialMatch)
-                {
-                    MR.FreeCalls.push_back(fc);
-                    matched = true;
-                    MR.UnmatchedFree = false;
-                    // 恢复因未匹配扣除的分数
-                    MR.Score += 10.0;
-                    // 从freeCalls中移除已匹配的项
-                    iter = freeCalls.erase(iter);
-                }
-                else
-                {
-                    ++iter;
-                }
-            }
-        }
-    }
-}
+//                 if (potentialMatch)
+//                 {
+//                     MR.FreeCalls.push_back(fc);
+//                     matched = true;
+//                     MR.UnmatchedFree = false;
+//                     // 恢复因未匹配扣除的分数
+//                     MR.Score += 10.0;
+//                     // 从freeCalls中移除已匹配的项
+//                     iter = freeCalls.erase(iter);
+//                 }
+//                 else
+//                 {
+//                     ++iter;
+//                 }
+//             }
+//         }
+//     }
+// }
 
 // 设置MallocRecord的源码位置
 void MyHBM::FunctionAnalysisPass::setSourceLocation(llvm::CallInst *CI, llvm::Function &F, MyHBM::MallocRecord &MR)

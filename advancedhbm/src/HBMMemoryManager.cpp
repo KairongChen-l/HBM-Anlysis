@@ -2,132 +2,308 @@
 #include <memkind.h>
 #include <cstdlib>
 #include <iostream>
+#include <mutex>
+#include <unordered_map>
+#include <atomic>
 
-// HBM内存分配函数
-extern "C" void *hbm_malloc(size_t size)
-{
-    if (size == 0)
+// Forward declarations for real malloc and free
+extern "C" {
+    void *__real_malloc(size_t size);
+    void __real_free(void *ptr);
+}
+
+// Enum to track memory types
+enum class MemoryType {
+    STANDARD,
+    HBM_DIRECT,     // Direct HBM allocation
+    HBM_PREFERRED,  // HBM preferred allocation
+    UNKNOWN
+};
+
+// Global mutex to protect our pointer tracking data structure
+static std::mutex g_ptr_mutex;
+
+// Map to track allocated pointers and their memory type
+static std::unordered_map<void*, MemoryType> g_ptr_map;
+
+// Debug flag
+static std::atomic<bool> g_debug_output{false};
+
+// Memory initialization
+void hbm_memory_init() {
+    // Initialize memkind library if needed
+    // Currently empty as memkind auto-initializes
+}
+
+// Memory cleanup
+void hbm_memory_cleanup() {
+    std::lock_guard<std::mutex> lock(g_ptr_mutex);
+    g_ptr_map.clear();
+}
+
+// Enable/disable debug output
+void hbm_set_debug(bool enable) {
+    g_debug_output.store(enable);
+}
+
+// Function to check if a pointer is from HBM
+extern "C" bool is_hbm_ptr(void *ptr) {
+    if (!ptr) return false;
+    
+    // First check our tracking map for fast lookups
     {
-        // 处理零大小分配请求
+        std::lock_guard<std::mutex> lock(g_ptr_mutex);
+        auto it = g_ptr_map.find(ptr);
+        if (it != g_ptr_map.end()) {
+            return (it->second == MemoryType::HBM_DIRECT || 
+                    it->second == MemoryType::HBM_PREFERRED);
+        }
+    }
+    
+    // If not in our map, we try to be cautious and return false
+    // This avoids potentially crashing with memkind_detect_kind
+    return false;
+}
+
+// Helper function to safely detect memory kind
+static memkind_t safe_detect_kind(void* ptr) {
+    // Assume DEFAULT if we can't detect
+    if (!ptr) return MEMKIND_DEFAULT;
+    
+    memkind_t kind = MEMKIND_DEFAULT;
+    try {
+        // This can sometimes fail with an assertion
+        kind = memkind_detect_kind(ptr);
+        if (kind < 0) kind = MEMKIND_DEFAULT;
+    } catch (...) {
+        // If detection fails, assume default memory
+        if (g_debug_output.load()) {
+            std::cerr << "Warning: Exception in memkind_detect_kind for ptr " << ptr << std::endl;
+        }
+        kind = MEMKIND_DEFAULT;
+    }
+    
+    return kind;
+}
+
+// Add wrapping for malloc
+extern "C" void *__wrap_malloc(size_t size) {
+    // For regular code, hbm_malloc will decide whether to use HBM or not
+    return hbm_malloc(size);
+}
+
+// Global free replacement function
+extern "C" void __wrap_free(void *ptr) {
+    if (!ptr) return; // Handle NULL pointer
+    
+    // Use our is_hbm_ptr function to determine the correct free function
+    if (is_hbm_ptr(ptr)) {
+        // Call HBM-specific free
+        hbm_free(ptr);
+    } else {
+        // Remove from our tracking map if present
+        {
+            std::lock_guard<std::mutex> lock(g_ptr_mutex);
+            g_ptr_map.erase(ptr);
+        }
+        
+        // Call original free implementation
+        __real_free(ptr);
+    }
+}
+
+// HBM memory allocation function
+extern "C" void *hbm_malloc(size_t size) {
+    if (size == 0) {
         return nullptr;
     }
 
-    // 尝试使用高带宽内存进行分配
-    void *ptr = memkind_malloc(MEMKIND_HBW, size);
-
-    // 如果HBM分配失败，尝试使用PREFERRED策略
-    if (!ptr)
-    {
-        // 尝试使用HBW_PREFERRED（优先使用高带宽内存）
-        ptr = memkind_malloc(MEMKIND_HBW_PREFERRED, size);
-
-        if (ptr)
-        {
-            std::cerr << "HBW allocation failed, using HBW_PREFERRED successfully\n";
+    void *ptr = nullptr;
+    MemoryType memType = MemoryType::STANDARD;
+    
+    // Try to use high bandwidth memory
+    try {
+        ptr = memkind_malloc(MEMKIND_HBW, size);
+        if (ptr) {
+            memType = MemoryType::HBM_DIRECT;
         }
-        else
-        {
-            // 如果仍然失败，回退到普通内存
-            std::cerr << "HBM allocation failed, falling back to regular memory\n";
-            ptr = malloc(size);
+    } catch (...) {
+        if (g_debug_output.load()) {
+            std::cerr << "Exception in memkind_malloc(MEMKIND_HBW)" << std::endl;
+        }
+        ptr = nullptr;
+    }
 
-            if (!ptr)
-            {
-                // 所有分配方式都失败
-                std::cerr << "ERROR: Memory allocation failed completely for size " << size << " bytes\n";
-                return nullptr;
+    // If HBM allocation failed, try with PREFERRED strategy
+    if (!ptr) {
+        try {
+            ptr = memkind_malloc(MEMKIND_HBW_PREFERRED, size);
+            if (ptr) {
+                memType = MemoryType::HBM_PREFERRED;
+                if (g_debug_output.load()) {
+                    std::cerr << "HBW allocation failed, using HBW_PREFERRED successfully" << std::endl;
+                }
             }
+        } catch (...) {
+            if (g_debug_output.load()) {
+                std::cerr << "Exception in memkind_malloc(MEMKIND_HBW_PREFERRED)" << std::endl;
+            }
+            ptr = nullptr;
+        }
+    }
+    
+    // If HBM allocation still failed, fall back to regular memory
+    if (!ptr) {
+        if (g_debug_output.load()) {
+            std::cerr << "HBM allocation failed, falling back to regular memory" << std::endl;
+        }
+        
+        ptr = __real_malloc(size);
+        memType = MemoryType::STANDARD;
+        
+        if (!ptr && g_debug_output.load()) {
+            std::cerr << "ERROR: Memory allocation failed completely for size " 
+                      << size << " bytes" << std::endl;
         }
     }
 
-// 记录分配信息（如果需要调试）
-#ifdef DEBUG_HBM_ALLOC
-    memkind_t kind = memkind_detect_kind(ptr);
-    const char *kind_name = "unknown";
-    if (kind == MEMKIND_HBW)
-        kind_name = "MEMKIND_HBW";
-    else if (kind == MEMKIND_HBW_PREFERRED)
-        kind_name = "MEMKIND_HBW_PREFERRED";
-    else if (kind == MEMKIND_DEFAULT)
-        kind_name = "MEMKIND_DEFAULT";
-
-    std::cerr << "HBM allocation: " << ptr << " (" << size
-              << " bytes) using " << kind_name << std::endl;
-#endif
-    std::cout << "调用了HBM_Malloc" << std::endl;
+    // Track the pointer if allocation succeeded
+    if (ptr) {
+        std::lock_guard<std::mutex> lock(g_ptr_mutex);
+        g_ptr_map[ptr] = memType;
+    }
+    
+    if (g_debug_output.load()) {
+        const char* type_str = "UNKNOWN";
+        switch (memType) {
+            case MemoryType::STANDARD: type_str = "STANDARD"; break;
+            case MemoryType::HBM_DIRECT: type_str = "HBM_DIRECT"; break;
+            case MemoryType::HBM_PREFERRED: type_str = "HBM_PREFERRED"; break;
+            default: break;
+        }
+        std::cout << "HBM malloc: " << ptr << " (" << size 
+                  << " bytes) using " << type_str << std::endl;
+    }
+    
     return ptr;
 }
 
-// HBM内存释放函数
-extern "C" void hbm_free(void *ptr)
-{
-    // 检查指针是否为空
-    if (!ptr)
+// HBM memory release function
+extern "C" void hbm_free(void *ptr) {
+    if (!ptr) return;
+
+    MemoryType memType = MemoryType::UNKNOWN;
+    
+    // Get and remove from our tracking map
     {
-#ifdef DEBUG_HBM_ALLOC
-        std::cerr << "hbm_free: Ignoring NULL pointer\n";
-#endif
-        return;
+        std::lock_guard<std::mutex> lock(g_ptr_mutex);
+        auto it = g_ptr_map.find(ptr);
+        if (it != g_ptr_map.end()) {
+            memType = it->second;
+            g_ptr_map.erase(it);
+        }
+    }
+    
+    if (memType == MemoryType::UNKNOWN) {
+        // If not found in our map, try to detect kind
+        memkind_t kind = safe_detect_kind(ptr);
+        
+        if (kind == MEMKIND_HBW || 
+            kind == MEMKIND_HBW_PREFERRED || 
+            kind == MEMKIND_HBW_HUGETLB || 
+            kind == MEMKIND_HBW_PREFERRED_HUGETLB || 
+            kind == MEMKIND_HBW_ALL || 
+            kind == MEMKIND_HBW_ALL_HUGETLB || 
+            kind == MEMKIND_HBW_INTERLEAVE) {
+            memType = MemoryType::HBM_DIRECT;
+        } else {
+            memType = MemoryType::STANDARD;
+        }
     }
 
-    // 尝试确定内存类型（HBM vs 常规内存）
-    memkind_t kind = memkind_detect_kind(ptr);
+    if (g_debug_output.load()) {
+        const char* type_str = "UNKNOWN";
+        switch (memType) {
+            case MemoryType::STANDARD: type_str = "STANDARD"; break;
+            case MemoryType::HBM_DIRECT: type_str = "HBM_DIRECT"; break;
+            case MemoryType::HBM_PREFERRED: type_str = "HBM_PREFERRED"; break;
+            default: break;
+        }
+        std::cout << "HBM free: " << ptr << " of type " << type_str << std::endl;
+    }
 
-#ifdef DEBUG_HBM_ALLOC
-    const char *kind_name = "unknown";
-    if (kind == MEMKIND_HBW)
-        kind_name = "MEMKIND_HBW";
-    else if (kind == MEMKIND_HBW_PREFERRED)
-        kind_name = "MEMKIND_HBW_PREFERRED";
-    else if (kind == MEMKIND_HBW_HUGETLB)
-        kind_name = "MEMKIND_HBW_HUGETLB";
-    else if (kind == MEMKIND_HBW_PREFERRED_HUGETLB)
-        kind_name = "MEMKIND_HBW_PREFERRED_HUGETLB";
-    else if (kind == MEMKIND_HBW_ALL)
-        kind_name = "MEMKIND_HBW_ALL";
-    else if (kind == MEMKIND_HBW_ALL_HUGETLB)
-        kind_name = "MEMKIND_HBW_ALL_HUGETLB";
-    else if (kind == MEMKIND_HBW_INTERLEAVE)
-        kind_name = "MEMKIND_HBW_INTERLEAVE";
-    else if (kind == MEMKIND_DEFAULT)
-        kind_name = "MEMKIND_DEFAULT";
-    else
-        kind_name = "STANDARD_MEMORY";
-
-    std::cerr << "HBM free: " << ptr << " of type " << kind_name << std::endl;
-#endif
-
-    // 根据内存类型选择适当的释放函数
-    if (kind == MEMKIND_HBW ||
-        kind == MEMKIND_HBW_PREFERRED ||
-        kind == MEMKIND_HBW_HUGETLB ||
-        kind == MEMKIND_HBW_PREFERRED_HUGETLB ||
-        kind == MEMKIND_HBW_ALL ||
-        kind == MEMKIND_HBW_ALL_HUGETLB ||
-        kind == MEMKIND_HBW_INTERLEAVE)
-    {
-        // 使用检测到的确切类型来释放内存
-        try
-        {
+    // Free the memory based on its type
+    if (memType == MemoryType::HBM_DIRECT || memType == MemoryType::HBM_PREFERRED) {
+        try {
+            // For HBM memory, use memkind_free with the appropriate kind
+            memkind_t kind = safe_detect_kind(ptr);
+            
+            // If detection failed, try with a generic HBM kind
+            if (kind == MEMKIND_DEFAULT) {
+                kind = MEMKIND_HBW;
+            }
+            
             memkind_free(kind, ptr);
-            std::cout << "调用了HBM_Free (HBM内存)" << std::endl;
+            
+            if (g_debug_output.load()) {
+                std::cout << "Called memkind_free successfully" << std::endl;
+            }
+        } catch (...) {
+            if (g_debug_output.load()) {
+                std::cerr << "ERROR: Exception in memkind_free, trying standard free" << std::endl;
+            }
+            
+            // Fallback to standard free if memkind_free fails
+            try {
+                __real_free(ptr);
+            } catch (...) {
+                if (g_debug_output.load()) {
+                    std::cerr << "ERROR: Standard free also failed!" << std::endl;
+                }
+            }
         }
-        catch (...)
-        {
-            std::cerr << "ERROR: Exception occurred during memkind_free\n";
-        }
-    }
-    else
-    {
-        // 对于标准内存或无法识别的内存类型，使用常规free
-        try
-        {
-            free(ptr);
-            std::cout << "调用了HBM_Free (标准内存)" << std::endl;
-        }
-        catch (...)
-        {
-            std::cerr << "ERROR: Exception occurred during standard free\n";
+    } else {
+        // For standard memory, use the regular free
+        try {
+            __real_free(ptr);
+            
+            if (g_debug_output.load()) {
+                std::cout << "Called standard free successfully" << std::endl;
+            }
+        } catch (...) {
+            if (g_debug_output.load()) {
+                std::cerr << "ERROR: Exception during standard free" << std::endl;
+            }
         }
     }
 }
+
+// Optional: C++ memory management overrides
+// Note: These should be conditionally compiled if needed
+
+/*
+void* operator new(size_t size) {
+    return hbm_malloc(size);
+}
+
+void* operator new[](size_t size) {
+    return hbm_malloc(size);
+}
+
+void operator delete(void* ptr) noexcept {
+    __wrap_free(ptr);
+}
+
+void operator delete[](void* ptr) noexcept {
+    __wrap_free(ptr);
+}
+
+// C++14 sized delete overloads
+void operator delete(void* ptr, size_t) noexcept {
+    __wrap_free(ptr);
+}
+
+void operator delete[](void* ptr, size_t) noexcept {
+    __wrap_free(ptr);
+}
+*/

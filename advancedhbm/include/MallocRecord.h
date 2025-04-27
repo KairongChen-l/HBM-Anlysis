@@ -37,7 +37,7 @@ namespace MyHBM
     bool IsThreadPartitioned = false;
     bool MayConflict = false;
     bool UserForcedHot = false;
-    bool UnmatchedFree = false;
+    //bool UnmatchedFree = false;
 
     // 动态 profile
     uint64_t DynamicAccessCount = 0;
