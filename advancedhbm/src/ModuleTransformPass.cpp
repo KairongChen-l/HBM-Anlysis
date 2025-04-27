@@ -2,7 +2,7 @@
 #include "FunctionAnalysisPass.h"
 // #include "ProfileGuidedAnalyzer.h"
 #include "Options.h"
-#include "HBMMemoryManager.h"
+// #include "HBMMemoryManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
@@ -298,8 +298,10 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
     std::sort(AllMallocs.begin(), AllMallocs.end(),
               [](const MallocRecord *A, const MallocRecord *B)
               {
-                  if (!A) return false;
-                  if (!B) return true;
+                  if (!A)
+                      return false;
+                  if (!B)
+                      return true;
 
                   // First sort by user force settings
                   if (A->UserForcedHot != B->UserForcedHot)
@@ -323,23 +325,23 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
         FunctionType::get(Int8PtrTy, {Int64Ty}, false));
 
     // Initialize memory manager function
-    FunctionCallee HBMInit = M.getOrInsertFunction(
-        "hbm_memory_init",
-        FunctionType::get(Type::getVoidTy(Ctx), {}, false));
+    // FunctionCallee HBMInit = M.getOrInsertFunction(
+    //     "hbm_memory_init",
+    //     FunctionType::get(Type::getVoidTy(Ctx), {}, false));
 
     // Make sure we call the initialization function at program start
-    if (Function *MainFunc = M.getFunction("main")) {
-        // Insert call to hbm_memory_init at the beginning of main
-        if (!MainFunc->empty() && !MainFunc->front().empty()) {
-            IRBuilder<> Builder(&MainFunc->front().front());
-            Builder.CreateCall(HBMInit);
-            errs() << "[HBM] Inserted initialization call in main\n";
-        }
-    }
+    // if (Function *MainFunc = M.getFunction("main")) {
+    // Insert call to hbm_memory_init at the beginning of main
+    //     if (!MainFunc->empty() && !MainFunc->front().empty()) {
+    //         IRBuilder<> Builder(&MainFunc->front().front());
+    //         Builder.CreateCall(HBMInit);
+    //         errs() << "[HBM] Inserted initialization call in main\n";
+    //     }
+    // }
 
     // Keep track of malloc functions we've found
-    std::unordered_map<Function*, StringRef> mallocFuncs;
-    std::unordered_map<Function*, StringRef> allocFuncs;
+    std::unordered_map<Function *, StringRef> mallocFuncs;
+    std::unordered_map<Function *, StringRef> allocFuncs;
 
     // Process each MallocRecord and decide if it should be moved to HBM
     for (auto *MR : AllMallocs)
@@ -349,9 +351,9 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
             continue;
 
         // Check if it should use HBM
-        bool shouldUseHBM = MR->UserForcedHot || 
-                           (MR->Score >= ThresholdInfo.adjustedThreshold && 
-                            (used + MR->AllocSize <= capacity));
+        bool shouldUseHBM = MR->UserForcedHot ||
+                            (MR->Score >= ThresholdInfo.adjustedThreshold &&
+                             (used + MR->AllocSize <= capacity));
 
         if (shouldUseHBM)
         {
@@ -375,14 +377,20 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
 
                 // Update used HBM space
                 used += MR->AllocSize;
-                
+
                 // Keep track of which function we replaced
-                if (Function *F = MR->MallocCall->getCalledFunction()) {
-                    if (F->getName() == "malloc") {
+                if (Function *F = MR->MallocCall->getCalledFunction())
+                {
+                    if (F->getName() == "malloc")
+                    {
                         mallocFuncs[F] = "malloc";
-                    } else if (F->getName().startswith("_Znwm") || F->getName().startswith("_Znam")) {
+                    }
+                    else if (F->getName().startswith("_Znwm") || F->getName().startswith("_Znam"))
+                    {
                         mallocFuncs[F] = "new";
-                    } else if (F->getName().contains("alloc") || F->getName().contains("Alloc")) {
+                    }
+                    else if (F->getName().contains("alloc") || F->getName().contains("Alloc"))
+                    {
                         allocFuncs[F] = F->getName();
                     }
                 }
@@ -392,15 +400,17 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
 
     // Output HBM usage statistics
     errs() << "[ModuleTransformPass] HBM used: " << used << " bytes\n";
-    
+
     // Output functions that were replaced
     errs() << "[ModuleTransformPass] Replaced malloc functions:\n";
-    for (auto &Pair : mallocFuncs) {
+    for (auto &Pair : mallocFuncs)
+    {
         errs() << "  - " << Pair.second << "\n";
     }
-    
+
     errs() << "[ModuleTransformPass] Replaced alloc functions:\n";
-    for (auto &Pair : allocFuncs) {
+    for (auto &Pair : allocFuncs)
+    {
         errs() << "  - " << Pair.second << "\n";
     }
 }

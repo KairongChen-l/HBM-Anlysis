@@ -30,10 +30,10 @@ static std::unordered_map<void*, MemoryType> g_ptr_map;
 static std::atomic<bool> g_debug_output{false};
 
 // Memory initialization
-void hbm_memory_init() {
-    // Initialize memkind library if needed
-    // Currently empty as memkind auto-initializes
-}
+// void hbm_memory_init() {
+     // Initialize memkind library if needed
+     // Currently empty as memkind auto-initializes
+// }
 
 // Memory cleanup
 void hbm_memory_cleanup() {
