@@ -385,7 +385,7 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
                     {
                         mallocFuncs[F] = "malloc";
                     }
-                    else if (F->getName().startswith("_Znwm") || F->getName().startswith("_Znam"))
+                    else if (F->getName().starts_with("_Znwm") || F->getName().starts_with("_Znam"))
                     {
                         mallocFuncs[F] = "new";
                     }

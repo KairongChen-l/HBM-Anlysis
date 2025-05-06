@@ -57,12 +57,12 @@ namespace MyHBM
         cl::opt<std::string> HBMReportFile(
             "hbm-report-file",
             cl::desc("Path to write HBM analysis report file"),
-            cl::init(""));
+            cl::init("report.json"));
 
-        cl::opt<std::string> ExternalProfileFile(
-            "hbm-profile-file",
-            cl::desc("Optional external profile JSON file for advanced mem analysis"),
-            cl::init(""));
+        // cl::opt<std::string> ExternalProfileFile(
+        //     "hbm-profile-file",
+        //     cl::desc("Optional external profile JSON file for advanced mem analysis"),
+        //     cl::init(""));
 
         cl::opt<bool> AnalysisOnly(
             "hbm-analysis-only",
@@ -92,19 +92,6 @@ void registerPlugin(llvm::PassBuilder &PB)
             FAM.registerPass([]
                              { return LoopAccessAnalysis(); });
         });
-
-    // 注册插桩Pass
-    // PB.registerPipelineParsingCallback(
-    //     [](StringRef Name, FunctionPassManager &FPM,
-    //        ArrayRef<PassBuilder::PipelineElement>)
-    //     {
-    //         if (Name == "hbm-instrument")
-    //         {
-    //             FPM.addPass(InstrumentationPass());
-    //             return true;
-    //         }
-    //         return false;
-    //     });
 
     // 注册模块级转换Pass
     PB.registerPipelineParsingCallback(
