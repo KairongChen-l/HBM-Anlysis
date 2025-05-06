@@ -6,6 +6,6 @@ opt-18 -load-pass-plugin=../build/advancedhbm/AdvancedHBMPlugin.so \
 
 # 链接
 clang++-18 optimized.ll -o program \
-                                           ../build/advancedhbm/libHBMMemoryManager.a \
-                                           -lmemkind -lpthread \
-                                           -Wl,--wrap=malloc -Wl,--wrap=free
+                        ../build/advancedhbm/libHBMMemoryManager.a \
+                        -lmemkind -lpthread \
+                        -Wl,--wrap=malloc -Wl,--wrap=free
