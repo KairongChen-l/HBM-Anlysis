@@ -59,8 +59,8 @@ PreservedAnalyses ModuleTransformPass::run(Module &M, ModuleAnalysisManager &MAM
     }
 
     // 如果指定了外部Profile文件，加载其中的数据
-    if (!Options::ExternalProfileFile.empty())
-        loadExternalProfile(M, AllMallocs);
+    // if (!Options::ExternalProfileFile.empty())
+    //     loadExternalProfile(M, AllMallocs);
     // 处理收集到的MallocRecord，决定哪些需要使用HBM
     processMallocRecords(M, AllMallocs);
     // 生成分析报告
@@ -167,129 +167,129 @@ llvm::json::Object ModuleTransformPass::createMallocRecordJSON(const MallocRecor
     return obj;
 }
 
-void ModuleTransformPass::loadExternalProfile(Module &M, SmallVectorImpl<MallocRecord *> &AllMallocs)
-{
-    std::string profileFile = Options::ExternalProfileFile;
-    errs() << "[ModuleTransformPass] Loading external profile: " << profileFile << "\n";
+// void ModuleTransformPass::loadExternalProfile(Module &M, SmallVectorImpl<MallocRecord *> &AllMallocs)
+// {
+//     std::string profileFile = Options::ExternalProfileFile;
+//     errs() << "[ModuleTransformPass] Loading external profile: " << profileFile << "\n";
 
-    // 打开Profile文件
-    std::error_code EC;
-    std::ifstream ifs(profileFile);
-    if (!ifs.is_open())
-    {
-        errs() << "  Cannot open profile file: " << profileFile << "\n";
-        return;
-    }
+//     // 打开Profile文件
+//     std::error_code EC;
+//     std::ifstream ifs(profileFile);
+//     if (!ifs.is_open())
+//     {
+//         errs() << "  Cannot open profile file: " << profileFile << "\n";
+//         return;
+//     }
 
-    // 读取文件内容
-    std::stringstream buffer;
-    buffer << ifs.rdbuf();
-    ifs.close();
-    std::string contents = buffer.str();
+//     // 读取文件内容
+//     std::stringstream buffer;
+//     buffer << ifs.rdbuf();
+//     ifs.close();
+//     std::string contents = buffer.str();
 
-    // 解析JSON数据
-    Expected<json::Value> jsonOrErr = json::parse(contents);
-    if (!jsonOrErr)
-    {
-        handleAllErrors(jsonOrErr.takeError(),
-                        [&](const ErrorInfoBase &EIB)
-                        {
-                            errs() << "  JSON parse error: " << EIB.message() << "\n";
-                        });
-        return;
-    }
+//     // 解析JSON数据
+//     Expected<json::Value> jsonOrErr = json::parse(contents);
+//     if (!jsonOrErr)
+//     {
+//         handleAllErrors(jsonOrErr.takeError(),
+//                         [&](const ErrorInfoBase &EIB)
+//                         {
+//                             errs() << "  JSON parse error: " << EIB.message() << "\n";
+//                         });
+//         return;
+//     }
 
-    auto *arr = jsonOrErr->getAsArray();
-    if (!arr)
-    {
-        errs() << "  Not a JSON array! Expected array of allocation records.\n";
-        return;
-    }
+//     auto *arr = jsonOrErr->getAsArray();
+//     if (!arr)
+//     {
+//         errs() << "  Not a JSON array! Expected array of allocation records.\n";
+//         return;
+//     }
 
-    // 处理JSON数据
-    for (const auto &entry : *arr)
-    {
-        auto *obj = entry.getAsObject();
-        if (!obj)
-            continue;
+//     // 处理JSON数据
+//     for (const auto &entry : *arr)
+//     {
+//         auto *obj = entry.getAsObject();
+//         if (!obj)
+//             continue;
 
-        std::string funcName;
-        if (auto funcNameVal = obj->getString("function"))
-            funcName = funcNameVal->str();
-        else
-            continue; // 没有函数名，跳过
+//         std::string funcName;
+//         if (auto funcNameVal = obj->getString("function"))
+//             funcName = funcNameVal->str();
+//         else
+//             continue; // 没有函数名，跳过
 
-        int lineNum = 0;
-        if (auto lineNumVal = obj->getInteger("line"))
-            lineNum = static_cast<int>(*lineNumVal);
+//         int lineNum = 0;
+//         if (auto lineNumVal = obj->getInteger("line"))
+//             lineNum = static_cast<int>(*lineNumVal);
 
-        double dynAccess = 0.0;
-        if (auto dynAccessVal = obj->getNumber("dyn_access"))
-            dynAccess = *dynAccessVal;
+//         double dynAccess = 0.0;
+//         if (auto dynAccessVal = obj->getNumber("dyn_access"))
+//             dynAccess = *dynAccessVal;
 
-        double bw = 0.0;
-        if (auto bwVal = obj->getNumber("bandwidth"))
-            bw = *bwVal;
+//         double bw = 0.0;
+//         if (auto bwVal = obj->getNumber("bandwidth"))
+//             bw = *bwVal;
 
-        bool isStrm = false;
-        if (auto isStrmVal = obj->getBoolean("is_stream"))
-            isStrm = *isStrmVal;
+//         bool isStrm = false;
+//         if (auto isStrmVal = obj->getBoolean("is_stream"))
+//             isStrm = *isStrmVal;
 
-        // 查找匹配的MallocRecord
-        for (auto *MR : AllMallocs)
-        {
-            if (!MR || !MR->MallocCall)
-                continue;
+//         // 查找匹配的MallocRecord
+//         for (auto *MR : AllMallocs)
+//         {
+//             if (!MR || !MR->MallocCall)
+//                 continue;
 
-            Function *F = MR->MallocCall->getFunction();
-            if (!F || F->getName() != funcName)
-                continue;
+//             Function *F = MR->MallocCall->getFunction();
+//             if (!F || F->getName() != funcName)
+//                 continue;
 
-            // 检查源码位置并提取行号
-            std::string loc = getSourceLocation(MR->MallocCall);
-            int foundLine = 0;
-            if (!loc.empty())
-            {
-                // 优先匹配最后一个冒号前的数字
-                std::regex lineRegex(":([0-9]+)(?::[0-9]+)?$");
-                std::smatch match;
-                if (std::regex_search(loc, match, lineRegex) && match.size() > 1)
-                {
-                    try
-                    {
-                        foundLine = std::stoi(match[1].str());
-                    }
-                    catch (const std::exception &e)
-                    {
-                        errs() << "  Warning: Failed to parse line number from '" << loc
-                               << "': " << e.what() << "\n";
-                    }
-                }
-            }
+//             // 检查源码位置并提取行号
+//             std::string loc = getSourceLocation(MR->MallocCall);
+//             int foundLine = 0;
+//             if (!loc.empty())
+//             {
+//                 // 优先匹配最后一个冒号前的数字
+//                 std::regex lineRegex(":([0-9]+)(?::[0-9]+)?$");
+//                 std::smatch match;
+//                 if (std::regex_search(loc, match, lineRegex) && match.size() > 1)
+//                 {
+//                     try
+//                     {
+//                         foundLine = std::stoi(match[1].str());
+//                     }
+//                     catch (const std::exception &e)
+//                     {
+//                         errs() << "  Warning: Failed to parse line number from '" << loc
+//                                << "': " << e.what() << "\n";
+//                     }
+//                 }
+//             }
 
-            // 如果找到匹配的记录，更新其动态信息
-            if (foundLine == lineNum)
-            {
-                MR->DynamicAccessCount = static_cast<uint64_t>(dynAccess);
-                MR->EstimatedBandwidth = bw;
-                MR->IsStreamAccess = MR->IsStreamAccess || isStrm;
-                MR->Score += std::log2(dynAccess + 1) * 2.0;
-                MR->Score += bw;
-                if (isStrm)
-                    MR->Score += Options::StreamBonus;
-                // TODO 添加这一行
-                // MR->ProfileAdjustedScore = MR->Score;
-            }
-        }
-    }
-}
+//             // 如果找到匹配的记录，更新其动态信息
+//             if (foundLine == lineNum)
+//             {
+//                 MR->DynamicAccessCount = static_cast<uint64_t>(dynAccess);
+//                 MR->EstimatedBandwidth = bw;
+//                 MR->IsStreamAccess = MR->IsStreamAccess || isStrm;
+//                 MR->Score += std::log2(dynAccess + 1) * 2.0;
+//                 MR->Score += bw;
+//                 if (isStrm)
+//                     MR->Score += Options::StreamBonus;
+//                 // TODO 添加这一行
+//                 // MR->ProfileAdjustedScore = MR->Score;
+//             }
+//         }
+//     }
+// }
 
 void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<MallocRecord *> &AllMallocs)
 {
     // Use fixed threshold settings
     AdaptiveThresholdInfo ThresholdInfo;
-    ThresholdInfo.baseThreshold = 50.0;
-    ThresholdInfo.adjustedThreshold = 50.0;
+    ThresholdInfo.baseThreshold = 10.0;
+    ThresholdInfo.adjustedThreshold = 10.0;
     ThresholdInfo.adjustmentReason = "Using fixed threshold (disabled ProfileGuidedAnalyzer)";
 
     errs() << "[HBM] Using fixed threshold: " << ThresholdInfo.adjustedThreshold << "\n";

@@ -19,7 +19,7 @@ namespace MyHBM
         extern llvm::cl::opt<bool> AnalysisOnly;
         // 报告和配置文件选项
         extern llvm::cl::opt<std::string> HBMReportFile;
-        extern llvm::cl::opt<std::string> ExternalProfileFile;
+        //extern llvm::cl::opt<std::string> ExternalProfileFile;
 
         // 初始化所有选项 - 在插件加载时调用
         void initializeOptions();

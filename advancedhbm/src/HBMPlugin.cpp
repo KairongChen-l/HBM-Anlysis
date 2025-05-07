@@ -108,12 +108,12 @@ void registerPlugin(llvm::PassBuilder &PB)
 
     
     /*把 Pass 插入默认优化 Pipeline 的末尾*/
-    // PB.registerOptimizerLastEPCallback(
-    //     [](ModulePassManager &MPM, OptimizationLevel) {
+    PB.registerOptimizerLastEPCallback(
+        [](ModulePassManager &MPM, OptimizationLevel) {
              // 没设置 -hbm-analysis-only 才转换
-    //         if (!MyHBM::Options::AnalysisOnly)
-    //             MPM.addPass(ModuleTransformPass());
-    //     });
+            if (!MyHBM::Options::AnalysisOnly)
+                MPM.addPass(ModuleTransformPass());
+        });
 }
 
 // 初始化插件

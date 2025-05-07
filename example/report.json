@@ -31,7 +31,7 @@
         "may_conflict": false,
         "parallel": false,
         "parallel_score": 0,
-        "score": 189.28962864192977,
+        "score": 202.08962864192975,
         "size": 400,
         "ssa_penalty": 1,
         "static_hot_dynamic_cold": false,

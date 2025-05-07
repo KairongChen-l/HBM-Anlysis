@@ -8,6 +8,7 @@ file(GLOB_RECURSE SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 if(NOT SOURCES)
     message(FATAL_ERROR "No source files found in ${CMAKE_CURRENT_SOURCE_DIR}")
 endif()
+
 # 创建LLVM插件
 add_llvm_pass_plugin(AdvancedHBMPlugin
     ${SOURCES}

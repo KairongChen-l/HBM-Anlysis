@@ -17,7 +17,7 @@ namespace MyHBM
         extern cl::opt<double> BandwidthScale;
         extern cl::opt<bool> AnalysisOnly;
         extern cl::opt<std::string> HBMReportFile;
-        extern cl::opt<std::string> ExternalProfileFile;
+        //extern cl::opt<std::string> ExternalProfileFile;
 
         // 初始化所有选项
         void initializeOptions()
