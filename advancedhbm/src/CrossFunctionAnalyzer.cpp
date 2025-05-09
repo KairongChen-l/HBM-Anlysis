@@ -1,4 +1,5 @@
 #include "CrossFunctionAnalyzer.h"
+#include "WeightConfig.h" // Include the weight config header
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/BasicBlock.h"
@@ -70,6 +71,7 @@ CrossFunctionInfo CrossFunctionAnalyzer::analyzeCrossFunctionUsage(Value *AllocP
     }
 
     // 3. 评估跨函数的影响
+    using namespace WeightConfig; // Use our weight configurations
 
     // 检查是否传递给了外部函数
     for (Function *F : Result.calledFunctions)
@@ -95,22 +97,22 @@ CrossFunctionInfo CrossFunctionAnalyzer::analyzeCrossFunctionUsage(Value *AllocP
     if (Result.calledFunctions.empty())
     {
         // 仅限本地使用
-        Result.crossFuncScore = 5.0;
+        Result.crossFuncScore = LocalOnlyScore;
     }
     else if (Result.isPropagatedToExternalFunc)
     {
         // 传递给外部函数，增加不确定性
-        Result.crossFuncScore = 2.0;
+        Result.crossFuncScore = ExternalPropagationScore;
     }
     else if (Result.isUsedInHotFunction)
     {
         // 传递给热函数，可能更需要HBM
-        Result.crossFuncScore = 15.0;
+        Result.crossFuncScore = HotFunctionScore;
     }
     else
     {
         // 传递给其他内部函数
-        Result.crossFuncScore = 8.0 + Result.calledFunctions.size() * 1.5;
+        Result.crossFuncScore = OtherInternalFunctionBaseScore + Result.calledFunctions.size() * PerCalledFunctionScore;
     }
 
     return Result;

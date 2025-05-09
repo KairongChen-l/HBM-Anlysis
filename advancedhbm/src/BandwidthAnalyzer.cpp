@@ -8,6 +8,7 @@
 #include "LoopAnalyzer.h"
 // 新添加的头文件
 #include "BankConflictAnalyzer.h"
+#include "WeightConfig.h" 
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -26,13 +27,13 @@ using namespace MyHBM;
 
 // 计算访问指令的带宽得分
 double BandwidthAnalyzer::computeAccessScore(
-
     Instruction *I,
     bool isWrite,
     MallocRecord &MR)
 {
     errs() << "===== Function:computeAccessScore =====\n";
     using namespace Options;
+    using namespace WeightConfig;
 
     double base = isWrite ? AccessBaseWrite : AccessBaseRead;
     BasicBlock *BB = I->getParent();
@@ -66,8 +67,8 @@ double BandwidthAnalyzer::computeAccessScore(
         if (PtrOperand)
         {
             double nestedLoopScore = LoopAn.analyzeNestedLoops(L, PtrOperand);
-            MR.StreamScore += nestedLoopScore * 0.3;
-            base += nestedLoopScore * 0.3;
+            MR.StreamScore += nestedLoopScore * NestedLoopWeight;
+            base += nestedLoopScore * NestedLoopWeight;
         }
 
         // ===== 数据局部性分析 =====
@@ -78,19 +79,19 @@ double BandwidthAnalyzer::computeAccessScore(
             {
             case LocalityType::EXCELLENT:
                 // 极佳的局部性可能不太需要HBM
-                base += StreamBonus * 0.2;
+                base += StreamBonus * LocalityExcellentBonus;
                 break;
             case LocalityType::GOOD:
                 // 良好的局部性，但仍可从HBM受益
-                base += StreamBonus * 0.5;
+                base += StreamBonus * LocalityGoodBonus;
                 break;
             case LocalityType::MODERATE:
                 // 中等局部性，更可能从HBM受益
-                base += StreamBonus * 0.8;
+                base += StreamBonus * LocalityModerateBonus;
                 break;
             case LocalityType::POOR:
                 // 差的局部性，非常需要HBM
-                base += StreamBonus * 1.2;
+                base += StreamBonus * LocalityPoorBonus;
                 MR.IsStreamAccess = true; // 标记为流式访问
                 break;
             }
@@ -140,8 +141,8 @@ double BandwidthAnalyzer::computeAccessScore(
                 MR.MayConflict = false;
 
                 // 只读共享在并行环境中也会增加带宽需求
-                MR.ParallelScore += ParallelBonus * 0.7;
-                base += ParallelBonus * 0.7;
+                MR.ParallelScore += ParallelBonus * SharedReadOnlyWeight;
+                base += ParallelBonus * SharedReadOnlyWeight;
                 break;
             }
 
@@ -152,8 +153,8 @@ double BandwidthAnalyzer::computeAccessScore(
                 MR.MayConflict = true;
 
                 // 原子操作通常不是带宽密集型的
-                MR.ParallelScore += ParallelBonus * 0.3;
-                base += ParallelBonus * 0.3;
+                MR.ParallelScore += ParallelBonus * AtomicAccessWeight;
+                base += ParallelBonus * AtomicAccessWeight;
                 break;
             }
             case ThreadAccessPattern::FALSE_SHARING:
@@ -163,8 +164,8 @@ double BandwidthAnalyzer::computeAccessScore(
                 MR.MayConflict = true;
 
                 // 伪共享会导致性能问题，但通常不是带宽瓶颈
-                MR.ConflictPenalty += ParallelBonus * 0.8;
-                base -= ParallelBonus * 0.8;
+                MR.ConflictPenalty += ParallelBonus * FalseSharingPenalty;
+                base -= ParallelBonus * FalseSharingPenalty;
                 break;
             }
             case ThreadAccessPattern::SHARED_WRITE:
@@ -174,8 +175,8 @@ double BandwidthAnalyzer::computeAccessScore(
                 MR.MayConflict = true;
 
                 // 共享写入可能导致缓存一致性流量
-                MR.ConflictPenalty += ParallelBonus * 0.5;
-                base -= ParallelBonus * 0.5;
+                MR.ConflictPenalty += ParallelBonus * SharedWritePenalty;
+                base -= ParallelBonus * SharedWritePenalty;
                 break;
             }
             case ThreadAccessPattern::PRIVATE:
@@ -207,20 +208,20 @@ double BandwidthAnalyzer::computeAccessScore(
             if (ParAn.isOpenMPParallel(*I->getFunction()))
             {
                 // OpenMP通常有良好的数据局部性
-                MR.ParallelScore += ParallelBonus * 0.3;
-                base += ParallelBonus * 0.3;
+                MR.ParallelScore += ParallelBonus * OpenMPWeight;
+                base += ParallelBonus * OpenMPWeight;
             }
             else if (ParAn.isCUDAParallel(*I->getFunction()))
             {
                 // CUDA通常有大量并行线程
-                MR.ParallelScore += ParallelBonus * 0.6;
-                base += ParallelBonus * 0.6;
+                MR.ParallelScore += ParallelBonus * CUDAWeight;
+                base += ParallelBonus * CUDAWeight;
             }
             else if (ParAn.isTBBParallel(*I->getFunction()))
             {
                 // TBB通常有任务窃取调度
-                MR.ParallelScore += ParallelBonus * 0.4;
-                base += ParallelBonus * 0.4;
+                MR.ParallelScore += ParallelBonus * TBBWeight;
+                base += ParallelBonus * TBBWeight;
             }
         }
 
@@ -237,9 +238,9 @@ double BandwidthAnalyzer::computeAccessScore(
 
             double vectorBonus = VectorBonus;
             if (VecWidth >= 8)
-                vectorBonus *= 1.5; // 512位向量（AVX-512）
+                vectorBonus *= VectorWidth8Plus; // 512位向量（AVX-512）
             else if (VecWidth >= 4)
-                vectorBonus *= 1.2; // 256位向量（AVX）
+                vectorBonus *= VectorWidth4Plus; // 256位向量（AVX）
 
             MR.VectorScore += vectorBonus;
             base += vectorBonus;
@@ -249,8 +250,8 @@ double BandwidthAnalyzer::computeAccessScore(
         if (VecAn.isVectorLoopPattern(L))
         {
             MR.IsVectorized = true;
-            MR.VectorScore += VectorBonus * 1.2;
-            base += VectorBonus * 1.2;
+            MR.VectorScore += VectorBonus * VectorLoopPatternBonus;
+            base += VectorBonus * VectorLoopPatternBonus;
         }
 
         // 检查指针操作数是否参与向量操作
@@ -334,16 +335,16 @@ double BandwidthAnalyzer::computeAccessScore(
                     switch (stride)
                     {
                     case StrideType::CONSTANT:
-                        streamBonus *= 1.2; // 常量步长，最优
+                        streamBonus *= StrideConstantBonus; // 常量步长，最优
                         break;
                     case StrideType::LINEAR:
-                        streamBonus *= 1.0; // 线性步长，很好
+                        streamBonus *= StrideLinearBonus; // 线性步长，很好
                         break;
                     case StrideType::COMPLEX:
-                        streamBonus *= 0.8; // 复杂但有规律，还可以
+                        streamBonus *= StrideComplexBonus; // 复杂但有规律，还可以
                         break;
                     case StrideType::IRREGULAR:
-                        streamBonus *= 0.5; // 不规则，但仍有一定流式特性
+                        streamBonus *= StrideIrregularBonus; // 不规则，但仍有一定流式特性
                         break;
                     default:
                         streamBonus *= 0.3; // 未知
@@ -354,7 +355,7 @@ double BandwidthAnalyzer::computeAccessScore(
                 // 检查是否在最内层循环，这通常是最热的访问点
                 if (L->getSubLoops().empty())
                 {
-                    streamBonus *= 1.5; // 最内层循环的流式访问更重要
+                    streamBonus *= InnerLoopBonus; // 最内层循环的流式访问更重要
                 }
 
                 MR.StreamScore += streamBonus;
@@ -380,6 +381,7 @@ double BandwidthAnalyzer::computeAccessScore(
 double BandwidthAnalyzer::computeMemorySSAStructureScore(const Instruction *I)
 {
     errs() << "===== Function:computeMemorySSAStructureScore =====\n";
+    using namespace WeightConfig;
     const unsigned MaxDepth = 12;
     const unsigned MaxFanOut = 5;
 
@@ -433,14 +435,17 @@ double BandwidthAnalyzer::computeMemorySSAStructureScore(const Instruction *I)
     }
 
     // 聚合 penalty 转换为得分（值越高说明结构越复杂）
-    double penalty = PhiPenalty * 0.5 + FanOutPenalty * 0.2;
-    return std::min(penalty, 5.0); // 最多扣5分
+    double penalty =  PhiPenalty * PhiNodePenaltyFactor + FanOutPenalty * FanOutPenaltyFactor;
+    return std::min(penalty, MaxSSAPenalty);  //最多扣MaxSSAPenalty
 }
 
 // 计算内存访问混乱度
 double BandwidthAnalyzer::computeAccessChaosScore(Value *BasePtr)
 {
     errs() << "===== Function:computeAccessChaosScore =====\n";
+
+    using namespace WeightConfig;
+
     if (!BasePtr)
         return 0.0;
 
@@ -510,17 +515,17 @@ double BandwidthAnalyzer::computeAccessChaosScore(Value *BasePtr)
     // 计算 chaos 分值
     double chaosScore = 0.0;
     if (GEPs.size() > 5)
-        chaosScore += (GEPs.size() - 5) * 0.2;
+        chaosScore += (GEPs.size() - 5) * GEPCountPenalty;
     if (IndirectIndexCount > 0)
-        chaosScore += IndirectIndexCount * 0.5;
+        chaosScore += IndirectIndexCount * IndirectIndexPenalty;
     if (NonAffineAccesses > 0)
-        chaosScore += NonAffineAccesses * 0.3;
+        chaosScore += NonAffineAccesses * NonAffineAccessPenalty;
     if (BitcastCount > 3)
-        chaosScore += (BitcastCount - 3) * 0.2;
+        chaosScore += (BitcastCount - 3) * BitcastCountPenalty;
     if (AccessTypes.size() > 3)
-        chaosScore += (AccessTypes.size() - 3) * 0.3;
-    if (chaosScore > 5.0)
-        chaosScore = 5.0;
+        chaosScore += (AccessTypes.size() - 3) * TypeDiversityPenalty;
+    if (chaosScore > MaxChaosPenalty)
+        chaosScore = MaxChaosPenalty;
 
     return chaosScore;
 }
@@ -634,7 +639,7 @@ double BandwidthAnalyzer::computeBandwidthScore(uint64_t approximateBytes, doubl
     if (approximateTime <= 0.0)
         approximateTime = 1.0;
     double bwGBs = (double)approximateBytes / (1024.0 * 1024.0 * 1024.0) / approximateTime;
-    return bwGBs * Options::BandwidthScale;
+    return bwGBs * WeightConfig::BandwidthScale;
 }
 
 // Compute score based on temporal locality

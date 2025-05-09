@@ -10,6 +10,8 @@
 #include "VectorizationAnalyzer.h"
 #include "PointerUtils.h"
 #include "Options.h"
+
+#include "WeightConfig.h" // Include the weight configuration header
 #include "llvm/IR/DebugInfoMetadata.h"
 #include <cmath>
 #include <exception>
@@ -293,7 +295,7 @@ double FunctionAnalysisPass::analyzeMallocStatic(
     const LoopAccessInfo *LAI,
     MallocRecord &MR)
 {
-
+    using namespace WeightConfig; // Use our weight configuration
     if (!CI)
         return 0.0;
 
@@ -399,7 +401,7 @@ double FunctionAnalysisPass::analyzeMallocStatic(
         if (MR.AccessedBytes > 0 && MR.AccessTime > 0.0)
         {
             MR.BandwidthScore = BWAnalyzer.computeBandwidthScore(MR.AccessedBytes, MR.AccessTime);
-            Score += MR.BandwidthScore * Options::BandwidthScale;
+            Score += MR.BandwidthScore * WeightConfig::BandwidthScale;
         }
     }
     catch (const std::exception &e)
@@ -409,7 +411,7 @@ double FunctionAnalysisPass::analyzeMallocStatic(
 
     // 如果是并行代码，额外加分
     if (MR.IsParallel)
-        Score += Options::ParallelBonus;
+        Score += WeightConfig::ParallelBonus;
 
     // 读取性能Profile元数据
     if (MDNode *ProfMD = CI->getMetadata("prof.memusage"))
@@ -500,9 +502,9 @@ double FunctionAnalysisPass::analyzeMallocStatic(
     }
     // 根据内存访问模式加分
     if (MR.IsStreamAccess)
-        Score += Options::StreamBonus;
+        Score += WeightConfig::StreamBonus;
     if (MR.IsVectorized)
-        Score += Options::VectorBonus;
+        Score += WeightConfig::VectorBonus;
 
     return Score;
 }

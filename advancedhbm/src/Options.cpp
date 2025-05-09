@@ -1,4 +1,5 @@
 #include "Options.h"
+#include "WeightConfig.h"
 
 using namespace llvm;
 
@@ -7,23 +8,16 @@ namespace MyHBM
     namespace Options
     {
 
-        // 命令行选项的外部声明 - 实际定义在 HBMPlugin.cpp 中
+        // Command line options defined in HBMPlugin.cpp
         extern cl::opt<double> HBMThreshold;
-        extern cl::opt<double> ParallelBonus;
-        extern cl::opt<double> StreamBonus;
-        extern cl::opt<double> VectorBonus;
-        extern cl::opt<double> AccessBaseRead;
-        extern cl::opt<double> AccessBaseWrite;
-        extern cl::opt<double> BandwidthScale;
         extern cl::opt<bool> AnalysisOnly;
         extern cl::opt<std::string> HBMReportFile;
-        //extern cl::opt<std::string> ExternalProfileFile;
 
-        // 初始化所有选项
+        // Initialize all options
         void initializeOptions()
         {
-            // 目前不需要额外初始化操作
-            // 命令行选项已通过全局变量自动注册
+            // All options are initialized with their defaults via cl::init
+            // Additional dynamic initialization could be added here if needed
         }
 
     } // namespace Options

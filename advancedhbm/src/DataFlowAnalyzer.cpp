@@ -1,5 +1,6 @@
 #include "DataFlowAnalyzer.h"
 #include "CrossFunctionAnalyzer.h"
+#include "WeightConfig.h" // Include the weight config header
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/BasicBlock.h"
@@ -275,24 +276,26 @@ DataFlowInfo DataFlowAnalyzer::analyzeDataFlow(Value *AllocPtr, Function &F)
   Result.avgUsesPerPhase = totalPhases > 0 ? double(totalUses) / totalPhases : 0.0;
 
   // 计算数据流分数
+  using namespace WeightConfig; // Using our weight configuration
+  // 计算数据流分数
   Result.dataFlowScore = 0.0;
 
   // 有初始化阶段和活跃使用的数据更可能是热点
   if (Result.hasInitPhase && activeUseCount > 0)
   {
-    Result.dataFlowScore += 10.0;
+    Result.dataFlowScore += InitPhaseBonus;
   }
 
   // 有只读阶段的数据可能适合一次性加载到HBM
   if (Result.hasReadOnlyPhase)
   {
-    Result.dataFlowScore += 15.0;
+    Result.dataFlowScore += ReadOnlyPhaseBonus;
   }
 
   // 没有休眠阶段的数据可能更活跃
   if (!Result.hasDormantPhase)
   {
-    Result.dataFlowScore += 5.0;
+    Result.dataFlowScore += NoDormantPhaseBonus;
   }
 
   // 根据使用密度调整分数

@@ -1,4 +1,6 @@
 #include "BankConflictAnalyzer.h"
+#include "WeightConfig.h" // Include the weight configuration header
+
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/Analysis/ValueTracking.h"

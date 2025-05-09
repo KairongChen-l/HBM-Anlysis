@@ -10,12 +10,12 @@ namespace MyHBM
 
         // 全局选项定义
         extern llvm::cl::opt<double> HBMThreshold;
-        extern llvm::cl::opt<double> ParallelBonus;
-        extern llvm::cl::opt<double> StreamBonus;
-        extern llvm::cl::opt<double> VectorBonus;
-        extern llvm::cl::opt<double> AccessBaseRead;
-        extern llvm::cl::opt<double> AccessBaseWrite;
-        extern llvm::cl::opt<double> BandwidthScale;
+        // extern llvm::cl::opt<double> ParallelBonus;
+        // extern llvm::cl::opt<double> StreamBonus;
+        // extern llvm::cl::opt<double> VectorBonus;
+        // extern llvm::cl::opt<double> AccessBaseRead;
+        // extern llvm::cl::opt<double> AccessBaseWrite;
+        // extern llvm::cl::opt<double> BandwidthScale;
         extern llvm::cl::opt<bool> AnalysisOnly;
         // 报告和配置文件选项
         extern llvm::cl::opt<std::string> HBMReportFile;

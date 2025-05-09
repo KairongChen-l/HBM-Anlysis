@@ -1,5 +1,6 @@
 #include "ContentionAnalyzer.h"
 #include "ParallelismAnalyzer.h"
+#include "WeightConfig.h" // Include the weight config header
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Constants.h"
 #include <queue>
@@ -162,25 +163,27 @@ ContentionInfo ContentionAnalyzer::analyzeContention(Value *AllocPtr, Function &
 
     // 计算竞争分数
     // 带宽竞争对HBM需求更高，其他竞争则降低HBM的效益
+
+    using namespace WeightConfig;
     if (Result.type == ContentionInfo::ContentionType::BANDWIDTH_CONTENTION)
     {
         // 带宽竞争是HBM的主要目标
-        Result.contentionScore = 25.0 * Result.contentionProbability;
+        Result.contentionScore = BandwidthContentionBonus * Result.contentionProbability;
     }
     else if (Result.type == ContentionInfo::ContentionType::FALSE_SHARING)
     {
         // 伪共享对HBM带宽的利用不太好
-        Result.contentionScore = -10.0 * Result.contentionProbability;
+        Result.contentionScore = -FalseSharingContentionPenalty * Result.contentionProbability;
     }
     else if (Result.type == ContentionInfo::ContentionType::ATOMIC_CONTENTION)
     {
         // 原子操作竞争会降低并行效率
-        Result.contentionScore = -15.0 * Result.contentionProbability;
+        Result.contentionScore = -AtomicContentionPenalty * Result.contentionProbability;
     }
     else if (Result.type == ContentionInfo::ContentionType::LOCK_CONTENTION)
     {
         // 锁竞争会严重降低并行效率
-        Result.contentionScore = -20.0 * Result.contentionProbability;
+        Result.contentionScore = -LockContentionPenalty * Result.contentionProbability;
     }
 
     // 调整基于竞争点数量的分数

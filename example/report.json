@@ -117,7 +117,7 @@
         "may_conflict": false,
         "parallel": false,
         "parallel_score": 0,
-        "score": 118.20280007519584,
+        "score": 134.00280007519584,
         "size": 800,
         "ssa_penalty": 1,
         "static_hot_dynamic_cold": false,
