@@ -52,6 +52,11 @@ FunctionAnalysisPass::run(Function &F, FunctionAnalysisManager &FAM)
                           << F.getName() << ": " << e.what() << "\n");
         errs() << "Warning: Failed to get analysis results for function "
                << F.getName() << ": " << e.what() << "\n";
+        // Add this line to provide a fallback for error cases:
+        if (!AA)
+            AA = nullptr;
+        if (!MSSA)
+            MSSA = nullptr;
         return {};
     }
 
@@ -280,7 +285,7 @@ FunctionAnalysisPass::run(Function &F, FunctionAnalysisManager &FAM)
     }
 
     // 匹配malloc和free调用
-    //matchFreeCalls(FMI, freeCalls);
+    // matchFreeCalls(FMI, freeCalls);
 
     return FMI;
 }

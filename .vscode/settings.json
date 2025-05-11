@@ -58,7 +58,7 @@
     "*.def": "cpp",
     "variant": "cpp"
   },
-  "C_Cpp.default.compilerPath": "/usr/bin/clang++-18"
+  "C_Cpp.default.compilerPath": "/usr/bin/clang-18"
 
   }
   

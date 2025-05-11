@@ -432,8 +432,25 @@ void ModuleTransformPass::generateReport(const Module &M, ArrayRef<MallocRecord 
         if (!MR || !MR->MallocCall)
             continue;
         // 使用辅助方法创建JSON对象
+        allocCount++;
+        totalAllocSize += MR->AllocSize;
+        if (MR->UserForcedHot || MR->Score >= Options::HBMThreshold)
+        {
+            movedToHBMCount++;
+            movedToHBMSize += MR->AllocSize;
+        }
+
         root.push_back(createMallocRecordJSON(MR, true));
     }
+    // Add statistics data as an additional record
+    json::Object statsObj;
+    statsObj["type"] = "statistics";
+    statsObj["total_alloc_count"] = allocCount;
+    statsObj["total_alloc_size"] = static_cast<uint64_t>(totalAllocSize);
+    statsObj["moved_to_hbm_count"] = movedToHBMCount;
+    statsObj["moved_to_hbm_size"] = static_cast<uint64_t>(movedToHBMSize);
+    // Add statistics to the report for better analysis
+    root.push_back(std::move(statsObj));
 
     // 转换为字符串
     std::string jsonStr;
@@ -461,6 +478,8 @@ void ModuleTransformPass::generateReport(const Module &M, ArrayRef<MallocRecord 
 
         out << jsonStr << "\n";
         errs() << "[ModuleTransformPass] Report written to: " << Options::HBMReportFile << "\n";
+        errs() << "[ModuleTransformPass] Statistics: " << allocCount << " allocations, "
+               << movedToHBMCount << " moved to HBM";
     }
 }
 
