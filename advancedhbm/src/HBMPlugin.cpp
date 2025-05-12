@@ -27,7 +27,6 @@ namespace MyHBM
 
         // These options are now defined in the WeightConfig namespace
         // They are declared and used from there
-
         cl::opt<std::string> HBMReportFile(
             "hbm-report-file",
             cl::desc("Path to write HBM analysis report file"),
@@ -60,12 +59,6 @@ void registerPlugin(llvm::PassBuilder &PB)
             FAM.registerPass([]
                              { return LoopAccessAnalysis(); });
         });
-    // Register module analysis pass to work with LTO
-    PB.registerAnalysisRegistrationCallback(
-        [](ModuleAnalysisManager &MAM)
-        {
-            // Register any module-level analyses required
-        });
     // 注册模块级转换Pass
     PB.registerPipelineParsingCallback(
         [](StringRef Name, ModulePassManager &MPM,
@@ -79,7 +72,6 @@ void registerPlugin(llvm::PassBuilder &PB)
             return false;
         });
 
-
     /*把 Pass 插入默认优化 Pipeline 的末尾*/
     PB.registerOptimizerLastEPCallback(
         [](ModulePassManager &MPM, OptimizationLevel)
@@ -88,7 +80,6 @@ void registerPlugin(llvm::PassBuilder &PB)
             if (!MyHBM::Options::AnalysisOnly)
                 MPM.addPass(ModuleTransformPass());
         });
-
 }
 
 // 初始化插件

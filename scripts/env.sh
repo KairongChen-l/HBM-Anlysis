@@ -1,41 +1,65 @@
 #!/bin/bash
+# analyze_app_revised.sh
 
-# 设置路径 - 使用绝对路径
-BUILD_DIR="$HOME/space/HBM-Anlysis/build"  # 修改为你的实际构建目录路径
-PASS_PATH="${BUILD_DIR}/advancedhbm/AdvancedHBMPlugin.so"
-HBM_LIB_PATH="${BUILD_DIR}/advancedhbm/libHBMMemoryManager.a"
-REPORT_PATH="hpl_hbm_report.json"
+# 设置路径
+PASS_PATH="/home/dell/space/HBM-Anlysis/build/advancedhbm/AdvancedHBMPlugin.so"  # 修改为你的实际路径
+REPORT_PATH="app_hbm_report.json"
 
-# 检查插件是否存在
+# 验证插件
+echo "验证 HBM 分析插件..."
 if [ ! -f "$PASS_PATH" ]; then
-    echo "错误: 找不到插件文件 $PASS_PATH"
-    echo "请确保构建路径正确，并且已成功编译插件"
+    echo "错误: 找不到插件 $PASS_PATH"
     exit 1
 fi
 
-# 设置编译器
-export CC=clang
-export CXX=clang++
+echo "插件文件信息:"
+ls -l "$PASS_PATH"
 
-# 设置CFLAGS和CXXFLAGS
-export CFLAGS="-flto=thin -O2 -g"
-export CXXFLAGS="-flto=thin -O2 -g"
+# 清理之前的构建
+echo "清理之前的构建..."
+make clean
 
-# 设置Linker选项，加载Pass插件
-export LDFLAGS="-Wl,-plugin-opt=load=${PASS_PATH} -Wl,-plugin-opt=opt-arg=-hbm-report-file=${REPORT_PATH}"
+# 尝试不同的编译选项组合
+echo "尝试使用lld链接器..."
+make CC=clang-18 \
+     CFLAGS="-Wall -Wextra -O2 -flto=thin -g" \
+     LDFLAGS="-fuse-ld=lld -Wl,--load-pass-plugin=${PASS_PATH} -Wl,-mllvm,-hbm-report-file=${REPORT_PATH}"
 
-# 检查是否只进行分析而不修改
-if [ "$1" = "--analysis-only" ]; then
-    export LDFLAGS="${LDFLAGS} -Wl,-plugin-opt=opt-arg=-hbm-analysis-only"
-    echo "分析模式已启用（不进行代码转换）"
-else
-    echo "转换模式已启用（将分配移至HBM）"
-    
-    # 如果不是只分析模式，需要链接HBM运行时库
-    export LDFLAGS="${LDFLAGS} ${HBM_LIB_PATH} -lmemkind -lpthread"
+if [ $? -ne 0 ]; then
+    echo "使用lld失败，尝试另一种语法..."
+    make clean
+    make CC=clang-18 \
+         CFLAGS="-Wall -Wextra -O2 -flto=thin -g" \
+         LDFLAGS="-fuse-ld=lld -Wl,--lto-legacy-pass-manager -Wl,-plugin-opt=load=${PASS_PATH} -Wl,-plugin-opt=opt-arg=-hbm-report-file=${REPORT_PATH}"
 fi
 
-echo "HBM分析环境已配置"
-echo "CFLAGS: ${CFLAGS}"
-echo "LDFLAGS: ${LDFLAGS}"
-echo "报告将生成在: ${REPORT_PATH}"
+if [ $? -ne 0 ]; then
+    echo "尝试更原始的方法..."
+    make clean
+    make CC=clang-18 \
+         CFLAGS="-Wall -Wextra -O2 -flto=thin -g" \
+         LDFLAGS="-Wl,-plugin=${PASS_PATH} -Wl,-plugin-opt=-hbm-report-file=${REPORT_PATH}"
+fi
+
+# 检查报告文件
+if [ -f "$REPORT_PATH" ]; then
+    echo "成功! HBM 分析报告已生成: $REPORT_PATH"
+    echo "报告大小: $(du -h $REPORT_PATH | cut -f1)"
+else
+    echo "警告: 未找到报告文件。"
+fi
+
+# 如果编译成功，尝试运行应用程序
+if [ -x "mem_app" ]; then
+    echo "运行应用程序..."
+    ./mem_app
+    
+    # 再次检查报告文件
+    if [ -f "$REPORT_PATH" ]; then
+        echo "最终报告大小: $(du -h $REPORT_PATH | cut -f1)"
+    fi
+else
+    echo "编译后无法找到可执行文件 mem_app"
+fi
+
+echo "分析完成。"
