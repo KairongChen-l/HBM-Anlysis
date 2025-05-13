@@ -79,7 +79,7 @@ namespace MyHBM
         const double StrideIrregularBonus = 0.5; // Irregular but some streaming
 
         // Inner loop bonus factor
-        const double InnerLoopBonus = 1.5;
+        const double InnerLoopBonus = 0.25;
 
         //===----------------------------------------------------------------------===//
         // Penalty weights

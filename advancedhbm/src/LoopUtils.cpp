@@ -20,7 +20,7 @@ namespace MyHBM
         // 获取循环的估计迭代次数
         uint64_t getLoopTripCount(Loop *L,llvm::ScalarEvolution &SE)
         {
-            errs() << "===== Function:getLoopTripCount-L-SE =====\n";
+            // errs() << "===== Function:getLoopTripCount-L-SE =====\n";
             if (!L)
                 return 1;
 
@@ -125,7 +125,7 @@ namespace MyHBM
         // 判断循环是否被标记为可向量化
         bool isLoopMarkedVectorizable(const Loop *L)
         {
-            errs() << "===== Function:isLoopMarkedVectorizable =====\n";
+            // errs() << "===== Function:isLoopMarkedVectorizable =====\n";
             if (!L || !L->getLoopID())
                 return false;
 

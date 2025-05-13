@@ -21,7 +21,7 @@ using namespace MyHBM;
 // 分析数据流
 DataFlowInfo DataFlowAnalyzer::analyzeDataFlow(Value *AllocPtr, Function &F)
 {
-  errs() << "===== Function:analyzeDataFlow =====\n";
+  // errs() << "===== Function:analyzeDataFlow =====\n";
   DataFlowInfo Result;
   if (!AllocPtr)
   {
@@ -307,7 +307,7 @@ DataFlowInfo DataFlowAnalyzer::analyzeDataFlow(Value *AllocPtr, Function &F)
 // 找出可能的阶段转换点
 std::set<BasicBlock *> DataFlowAnalyzer::findPhaseTransitionPoints(Value *Ptr, Function &F)
 {
-  errs() << "===== Function:findPhaseTransitionPoints =====\n";
+  // errs() << "===== Function:findPhaseTransitionPoints =====\n";
   std::set<BasicBlock *> Result;
 
   // 找出循环出口点
@@ -346,7 +346,7 @@ std::set<BasicBlock *> DataFlowAnalyzer::findPhaseTransitionPoints(Value *Ptr, F
 // 判断一个条件是否依赖于指针
 bool DataFlowAnalyzer::isPtrValueDependent(Value *Cond, Value *Ptr)
 {
-  errs() << "===== Function:isPtrValueDependent =====\n";
+  // errs() << "===== Function:isPtrValueDependent =====\n";
   if (!Cond || !Ptr)
     return false;
 
@@ -387,7 +387,7 @@ bool DataFlowAnalyzer::isPtrValueDependent(Value *Cond, Value *Ptr)
 // 判断两个指令是否相近
 bool DataFlowAnalyzer::isInstructionNear(Instruction *I1, Value *I2, unsigned threshold)
 {
-  errs() << "===== Function:isInstructionNear =====\n";
+  // errs() << "===== Function:isInstructionNear =====\n";
   if (auto *I2Inst = dyn_cast<Instruction>(I2))
   {
     if (I1->getParent() == I2Inst->getParent())
@@ -425,7 +425,7 @@ bool DataFlowAnalyzer::isInstructionNear(Instruction *I1, Value *I2, unsigned th
 // 计算两个基本块的近似距离
 unsigned DataFlowAnalyzer::getApproximateBlockDistance(BasicBlock *BB1, BasicBlock *BB2)
 {
-  errs() << "===== Function:getApproximateBlockDistance =====\n";
+  // errs() << "===== Function:getApproximateBlockDistance =====\n";
   if (BB1 == BB2)
     return 0;
 
@@ -456,7 +456,7 @@ unsigned DataFlowAnalyzer::getApproximateBlockDistance(BasicBlock *BB1, BasicBlo
 // 判断A是否支配B
 bool DataFlowAnalyzer::dominates(BasicBlock *A, BasicBlock *B)
 {
-  errs() << "===== Function:dominates =====\n";
+  // errs() << "===== Function:dominates =====\n";
   if (A == B)
     return true;
 
@@ -469,7 +469,7 @@ bool DataFlowAnalyzer::dominates(BasicBlock *A, BasicBlock *B)
 bool DataFlowAnalyzer::isPotentiallyReachableFromTo(BasicBlock *From, BasicBlock *To,
                                                     void *domTree, void *postDomTree, bool exact)
 {
-  errs() << "===== Function:isPotentiallyReachableFromTo =====\n";
+  // errs() << "===== Function:isPotentiallyReachableFromTo =====\n";
   if (From == To)
     return true;
 

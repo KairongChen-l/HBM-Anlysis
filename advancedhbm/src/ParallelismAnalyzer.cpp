@@ -18,7 +18,7 @@ using namespace MyHBM;
 // 分析指针的线程访问模式
 ThreadAccessPattern ParallelismAnalyzer::analyzeThreadAccess(Value *Ptr, Instruction *I)
 {   
-    errs() << "===== Function:analyzeThreadAccess =====\n";
+    // errs() << "===== Function:analyzeThreadAccess =====\n";
     if (!Ptr || !I)
         return ThreadAccessPattern::UNKNOWN;
 
@@ -63,7 +63,7 @@ ThreadAccessPattern ParallelismAnalyzer::analyzeThreadAccess(Value *Ptr, Instruc
 // 检测是否为OpenMP并行执行
 bool ParallelismAnalyzer::isOpenMPParallel(Function &F)
 {   
-    errs() << "===== Function:isOpenMPParallel =====\n";
+    // errs() << "===== Function:isOpenMPParallel =====\n";
     // 检查函数名称或属性
     if (F.getName().contains("_omp_") ||
         F.hasFnAttribute("omp") ||
@@ -106,7 +106,7 @@ bool ParallelismAnalyzer::isOpenMPParallel(Function &F)
 // 检测是否为CUDA并行执行
 bool ParallelismAnalyzer::isCUDAParallel(Function &F)
 {   
-    errs() << "===== Function:isCUDAParallel =====\n";
+    // errs() << "===== Function:isCUDAParallel =====\n";
     // 检查函数是否有CUDA属性
     if (F.getName().starts_with("_Z") &&
         (F.getName().contains("cuda") ||
@@ -140,7 +140,7 @@ bool ParallelismAnalyzer::isCUDAParallel(Function &F)
 // 检测是否为TBB并行执行
 bool ParallelismAnalyzer::isTBBParallel(Function &F)
 {   
-    errs() << "===== Function:isTBBParallel =====\n";
+    // errs() << "===== Function:isTBBParallel =====\n";
     // 检查是否调用TBB函数
     for (auto &BB : F)
     {
@@ -168,7 +168,7 @@ bool ParallelismAnalyzer::isTBBParallel(Function &F)
 // 估计并行执行的线程数
 unsigned ParallelismAnalyzer::estimateParallelThreads(Function &F)
 {   
-    errs() << "===== Function:estimateParallelThreads =====\n";
+    // errs() << "===== Function:estimateParallelThreads =====\n";
     // 默认并行度
     unsigned DefaultThreads = 4;
 
@@ -233,7 +233,7 @@ unsigned ParallelismAnalyzer::estimateParallelThreads(Function &F)
 // 检查是否为原子访问
 bool ParallelismAnalyzer::isAtomicAccess(Instruction *I)
 {   
-    errs() << "===== Function:isAtomicAccess =====\n";
+    // errs() << "===== Function:isAtomicAccess =====\n";
     if (!I)
         return false;
 
@@ -267,7 +267,7 @@ bool ParallelismAnalyzer::isAtomicAccess(Instruction *I)
 // 检查是否有并行循环元数据
 bool ParallelismAnalyzer::hasParallelLoopMetadata(Loop *L)
 {   
-    errs() << "===== Function:hasParallelLoopMetadata =====\n";
+    // errs() << "===== Function:hasParallelLoopMetadata =====\n";
     if (!L || !L->getHeader())
         return false;
 
@@ -302,7 +302,7 @@ bool ParallelismAnalyzer::hasParallelLoopMetadata(Loop *L)
 
 bool ParallelismAnalyzer::detectFalseSharing(Value *Ptr, const DataLayout &DL)
 {   
-    errs() << "===== Function:detectFalseSharing =====\n";
+    // errs() << "===== Function:detectFalseSharing =====\n";
     if (!Ptr)
         return false;
 
@@ -345,7 +345,7 @@ bool ParallelismAnalyzer::detectFalseSharing(Value *Ptr, const DataLayout &DL)
 // 检测函数是否使用并行运行时
 bool ParallelismAnalyzer::detectParallelRuntime(Function &F)
 {   
-    errs() << "===== Function:detectParallelRuntime =====\n";
+    // errs() << "===== Function:detectParallelRuntime =====\n";
     const std::unordered_set<std::string> ParallelEntrypoints = {
         "__kmpc_fork_call", "__kmpc_for_static_init_4", "__kmpc_for_static_init_8",
         "__kmpc_for_static_init_16", "__kmpc_for_static_init_32", "__kmpc_for_static_init_64",
@@ -379,7 +379,7 @@ bool ParallelismAnalyzer::detectParallelRuntime(Function &F)
 // 检查是否为线程依赖的访问（通过线程ID进行索引）
 bool ParallelismAnalyzer::isThreadDependentAccess(Value *Ptr)
 {   
-    errs() << "===== Function:isThreadDependentAccess =====\n";
+    // errs() << "===== Function:isThreadDependentAccess =====\n";
     if (!Ptr)
         return false;
 
@@ -414,7 +414,7 @@ bool ParallelismAnalyzer::isThreadDependentAccess(Value *Ptr)
 // 检查ID是否与线程ID相关
 bool ParallelismAnalyzer::isThreadIDRelated(Value *V)
 {   
-    errs() << "===== Function:isThreadIDRelated =====\n";
+    // errs() << "===== Function:isThreadIDRelated =====\n";
     if (!V)
         return false;
 

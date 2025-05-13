@@ -8,7 +8,7 @@ using namespace MyHBM;
 // 生成记录的JSON表示
 std::string MallocRecord::ToJsonString() const
 {
-    errs() << "===== Function:ToJsonString =====\n";
+    // errs() << "===== Function:ToJsonString =====\n";
     json::Object Obj;
 
     // 基本信息

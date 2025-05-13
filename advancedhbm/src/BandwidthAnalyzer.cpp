@@ -8,7 +8,7 @@
 #include "LoopAnalyzer.h"
 // 新添加的头文件
 #include "BankConflictAnalyzer.h"
-#include "WeightConfig.h" 
+#include "WeightConfig.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/Analysis/LoopInfo.h"
@@ -31,7 +31,7 @@ double BandwidthAnalyzer::computeAccessScore(
     bool isWrite,
     MallocRecord &MR)
 {
-    errs() << "===== Function:computeAccessScore =====\n";
+    // errs() << "===== Function:computeAccessScore =====\n";
     using namespace Options;
     using namespace WeightConfig;
 
@@ -278,7 +278,7 @@ double BandwidthAnalyzer::computeAccessScore(
             base += temporalScore;
 
             // Debug output
-            errs() << "  Adding temporal locality score: " << temporalScore << "\n";
+            // errs() << "  Adding temporal locality score: " << temporalScore << "\n";
         }
 
         // ===== Add bank conflict analysis =====
@@ -291,7 +291,7 @@ double BandwidthAnalyzer::computeAccessScore(
             base += bankConflictScore;
 
             // Debug output
-            errs() << "  Adding bank conflict score adjustment: " << bankConflictScore << "\n";
+            // errs() << "  Adding bank conflict score adjustment: " << bankConflictScore << "\n";
         }
         // ===== Add dependency chain analysis =====
         if (PtrOperand)
@@ -303,7 +303,7 @@ double BandwidthAnalyzer::computeAccessScore(
             base += depChainScore;
 
             // Debug output
-            errs() << "  Adding dependency chain score adjustment: " << depChainScore << "\n";
+            // errs() << "  Adding dependency chain score adjustment: " << depChainScore << "\n";
         }
         // 检查函数是否包含SIMD内部函数
         Function *F = I->getFunction();
@@ -380,7 +380,7 @@ double BandwidthAnalyzer::computeAccessScore(
 // 计算MemorySSA结构复杂度分析
 double BandwidthAnalyzer::computeMemorySSAStructureScore(const Instruction *I)
 {
-    errs() << "===== Function:computeMemorySSAStructureScore =====\n";
+    // errs() << "===== Function:computeMemorySSAStructureScore =====\n";
     using namespace WeightConfig;
     const unsigned MaxDepth = 12;
     const unsigned MaxFanOut = 5;
@@ -435,14 +435,14 @@ double BandwidthAnalyzer::computeMemorySSAStructureScore(const Instruction *I)
     }
 
     // 聚合 penalty 转换为得分（值越高说明结构越复杂）
-    double penalty =  PhiPenalty * PhiNodePenaltyFactor + FanOutPenalty * FanOutPenaltyFactor;
-    return std::min(penalty, MaxSSAPenalty);  //最多扣MaxSSAPenalty
+    double penalty = PhiPenalty * PhiNodePenaltyFactor + FanOutPenalty * FanOutPenaltyFactor;
+    return std::min(penalty, MaxSSAPenalty); // 最多扣MaxSSAPenalty
 }
 
 // 计算内存访问混乱度
 double BandwidthAnalyzer::computeAccessChaosScore(Value *BasePtr)
 {
-    errs() << "===== Function:computeAccessChaosScore =====\n";
+    // errs() << "===== Function:computeAccessChaosScore =====\n";
 
     using namespace WeightConfig;
 
@@ -538,104 +538,168 @@ void BandwidthAnalyzer::explorePointerUsers(
     MallocRecord &MR,
     std::unordered_set<Value *> &Visited)
 {
-    errs() << "===== Function:explorePointerUsers =====\n";
+    // errs() << "===== Function:explorePointerUsers =====\n";
+
+    // 检查是否是空指针
+    if (!RootPtr || !V)
+    {
+        errs() << "Warning: Null pointer passed to explorePointerUsers\n";
+        return;
+    }
+
     // 如果是访问过的Value，直接跳过
     if (Visited.count(V))
         return;
+    // 标记为访问过
     Visited.insert(V);
 
-    for (User *U : V->users())
+    // Limit the number of instructions analyzed to prevent excessive runtime
+    // static const size_t MAX_INSTRUCTIONS = 1000;
+    // if (Visited.size() > MAX_INSTRUCTIONS) {
+    //     errs() << "Warning: Stopping pointer analysis after " << MAX_INSTRUCTIONS
+    //            << " instructions to prevent excessive runtime\n";
+    //     return;
+    // }
+
+    try
     {
-        if (auto *I = dyn_cast<Instruction>(U))
+        for (User *U : V->users())
         {
-            if (auto *LD = dyn_cast<LoadInst>(I))
+            if (auto *I = dyn_cast<Instruction>(U))
             {
-                if (LD->getType()->isVectorTy())
-                    MR.IsVectorized = true;
-                // 计算读访问分数
-                Score += computeAccessScore(LD, false, MR);
-            }
-            else if (auto *ST = dyn_cast<StoreInst>(I))
-            {
-                if (ST->getValueOperand()->getType()->isVectorTy())
-                    MR.IsVectorized = true;
-                Score += computeAccessScore(ST, true, MR);
-            }
-            else if (auto *CallI = dyn_cast<CallInst>(I))
-            {
-                Function *CalledFunc = CallI->getCalledFunction();
-                if (!CalledFunc)
-                    Score += 5.0;
-                else
+                // Make sure the instruction belongs to a function
+                Function *InstF = I->getFunction();
+                if (!InstF)
                 {
-                    if (dyn_cast<MemIntrinsic>(CallI))
-                        Score += 3.0;
-                    else
-                        Score += 3.0;
+                    errs() << "Warning: Instruction without function encountered\n";
+                    continue;
                 }
-            }
-            else if (auto *GEP = dyn_cast<GetElementPtrInst>(I))
-            {
-                ParallelismAnalyzer ParAn;
-                for (auto idx = GEP->idx_begin(); idx != GEP->idx_end(); ++idx)
+
+                if (auto *LD = dyn_cast<LoadInst>(I))
                 {
-                    Value *IV = idx->get();
-                    if (ParAn.isThreadIDRelated(IV))
+                    if (LD->getType()->isVectorTy())
+                        MR.IsVectorized = true;
+                    // Calculate read access score
+                    Score += computeAccessScore(LD, false, MR);
+                }
+                else if (auto *ST = dyn_cast<StoreInst>(I))
+                {
+                    if (ST->getValueOperand()->getType()->isVectorTy())
+                        MR.IsVectorized = true;
+                    Score += computeAccessScore(ST, true, MR);
+                }
+                else if (auto *CallI = dyn_cast<CallInst>(I))
+                {
+                    Function *CalledFunc = CallI->getCalledFunction();
+                    // Handle calls safely
+                    if (!CalledFunc)
                     {
-                        MR.IsThreadPartitioned = true;
+                        // Indirect call - be conservative
+                        Score += 5.0;
+                    }
+                    else if (dyn_cast<MemIntrinsic>(CallI))
+                    {
+                        // Memory intrinsic (memcpy, memmove, etc.)
+                        Score += 3.0;
+                    }
+                    else
+                    {
+                        // Regular function call
+                        Score += 3.0;
                     }
                 }
-                if (MR.IsParallel && !MR.IsThreadPartitioned && !MR.IsStreamAccess)
+                else if (auto *GEP = dyn_cast<GetElementPtrInst>(I))
                 {
-                    MR.MayConflict = true;
-                    Score -= 5.0;
-                }
-                bool IsLikelyStream = true;
-                for (auto idx = GEP->idx_begin(); idx != GEP->idx_end(); ++idx)
-                {
-                    if (auto *CI = dyn_cast<ConstantInt>(idx->get()))
+                    // Analyze GEP instruction for parallelism
+                    ParallelismAnalyzer ParAn;
+                    for (auto idx = GEP->idx_begin(); idx != GEP->idx_end(); ++idx)
                     {
-                        // 如果是常量索引，判断是否为0或1，这样是很容易判断成连续的情况
-                        // 但是跨步访问的情况也可能是stream访问，所以这里需要进一步分析
-                        if (CI->getSExtValue() != 0 && CI->getSExtValue() != 1)
+                        if (!idx->get())
+                            continue; // Skip null indices
+
+                        Value *IV = idx->get();
+                        if (ParAn.isThreadIDRelated(IV))
+                        {
+                            MR.IsThreadPartitioned = true;
+                        }
+                    }
+
+                    // Handle threading conflicts
+                    if (MR.IsParallel && !MR.IsThreadPartitioned && !MR.IsStreamAccess)
+                    {
+                        MR.MayConflict = true;
+                        Score -= 5.0;
+                    }
+
+                    // Simple stream access detection
+                    bool IsLikelyStream = true;
+                    for (auto idx = GEP->idx_begin(); idx != GEP->idx_end(); ++idx)
+                    {
+                        if (!idx->get())
+                            continue; // Skip null indices
+
+                        if (auto *CI = dyn_cast<ConstantInt>(idx->get()))
+                        {
+                            if (CI->getSExtValue() != 0 && CI->getSExtValue() != 1)
+                            {
+                                IsLikelyStream = false;
+                                break;
+                            }
+                        }
+                        else
                         {
                             IsLikelyStream = false;
                             break;
                         }
                     }
-                    else
-                    {
-                        // 动态索引，这边不好判断，可结合SCEV深入分析
-                        IsLikelyStream = false;
-                        break;
-                    }
+
+                    if (IsLikelyStream)
+                        MR.IsStreamAccess = true;
+
+                    // Continue exploration
+                    explorePointerUsers(RootPtr, GEP, Score, MR, Visited);
                 }
-                if (IsLikelyStream)
-                    MR.IsStreamAccess = true;
-                explorePointerUsers(RootPtr, GEP, Score, MR, Visited);
+                else if (auto *BC = dyn_cast<BitCastInst>(I))
+                {
+                    explorePointerUsers(RootPtr, BC, Score, MR, Visited);
+                }
+                else if (auto *ASCI = dyn_cast<AddrSpaceCastInst>(I))
+                {
+                    explorePointerUsers(RootPtr, ASCI, Score, MR, Visited);
+                }
+                else if (auto *PN = dyn_cast<PHINode>(I))
+                {
+                    explorePointerUsers(RootPtr, PN, Score, MR, Visited);
+                }
+                else if (auto *SI = dyn_cast<SelectInst>(I))
+                {
+                    explorePointerUsers(RootPtr, SI, Score, MR, Visited);
+                }
+                else if (dyn_cast<PtrToIntInst>(I))
+                {
+                    Score += 3.0;
+                }
+                else if (dyn_cast<IntToPtrInst>(I))
+                {
+                    explorePointerUsers(RootPtr, I, Score, MR, Visited);
+                }
+                else
+                {
+                    Score += 1.0;
+                }
             }
-            else if (auto *BC = dyn_cast<BitCastInst>(I))
-                explorePointerUsers(RootPtr, BC, Score, MR, Visited);
-            else if (auto *ASCI = dyn_cast<AddrSpaceCastInst>(I))
-                explorePointerUsers(RootPtr, ASCI, Score, MR, Visited);
-            else if (auto *PN = dyn_cast<PHINode>(I))
-                explorePointerUsers(RootPtr, PN, Score, MR, Visited);
-            else if (auto *SI = dyn_cast<SelectInst>(I))
-                explorePointerUsers(RootPtr, SI, Score, MR, Visited);
-            else if (dyn_cast<PtrToIntInst>(I))
-                Score += 3.0;
-            else if (dyn_cast<IntToPtrInst>(I))
-                explorePointerUsers(RootPtr, I, Score, MR, Visited);
-            else
-                Score += 1.0;
         }
+    }
+    catch (const std::exception &e)
+    {
+        errs() << "Error in explorePointerUsers: " << e.what() << "\n";
     }
 }
 
 // 计算带宽得分
 double BandwidthAnalyzer::computeBandwidthScore(uint64_t approximateBytes, double approximateTime)
 {
-    errs() << "===== Function:computeBandwidthScore =====\n";
+    // errs() << "===== Function:computeBandwidthScore =====\n";
     if (approximateTime <= 0.0)
         approximateTime = 1.0;
     double bwGBs = (double)approximateBytes / (1024.0 * 1024.0 * 1024.0) / approximateTime;
@@ -645,7 +709,7 @@ double BandwidthAnalyzer::computeBandwidthScore(uint64_t approximateBytes, doubl
 // Compute score based on temporal locality
 double BandwidthAnalyzer::computeTemporalLocalityScore(Value *Ptr, Function *F)
 {
-    errs() << "===== Function:computeTemporalLocalityScore =====\n";
+    // errs() << "===== Function:computeTemporalLocalityScore =====\n";
     if (!Ptr || !F)
         return 0.0;
 
@@ -694,7 +758,7 @@ double BandwidthAnalyzer::computeTemporalLocalityScore(Value *Ptr, Function *F)
 // Analyze bank conflicts and adjust score
 double BandwidthAnalyzer::analyzeBankConflicts(Value *Ptr, MallocRecord &MR)
 {
-    errs() << "===== Function:analyzeBankConflicts =====\n";
+    // errs() << "===== Function:analyzeBankConflicts =====\n";
     if (!Ptr)
         return 0.0;
 
@@ -733,7 +797,7 @@ double BandwidthAnalyzer::analyzeBankConflicts(Value *Ptr, MallocRecord &MR)
 // Analyze dependency chains and adjust score
 double BandwidthAnalyzer::analyzeDependencyChains(Value *Ptr, MallocRecord &MR)
 {
-    errs() << "===== Function:analyzeDependencyChains =====\n";
+    // errs() << "===== Function:analyzeDependencyChains =====\n";
     if (!Ptr)
         return 0.0;
 

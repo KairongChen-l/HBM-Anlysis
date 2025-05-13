@@ -16,7 +16,7 @@ using namespace MyHBM;
 // 分析GEP指令的步长类型
 StrideType StrideAnalyzer::analyzeGEPStride(GetElementPtrInst *GEP)
 {
-    errs() << "===== Function:analyzeGEPStride =====\n";
+    // errs() << "===== Function:analyzeGEPStride =====\n";
     if (!GEP)
         return StrideType::UNKNOWN;
 
@@ -229,7 +229,7 @@ StrideType StrideAnalyzer::analyzeGEPStride(GetElementPtrInst *GEP)
 // 分析是否为流式访问模式
 bool StrideAnalyzer::isStreamingAccess(Value *Ptr, Loop *L, AAResults &AA)
 {   
-    errs() << "===== Function:isStreamingAccess =====\n";
+    // errs() << "===== Function:isStreamingAccess =====\n";
     if (!Ptr || !L || !SE.isSCEVable(Ptr->getType()))
         return false;
 

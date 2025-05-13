@@ -14,7 +14,7 @@ using namespace MyHBM;
 // 检查指令是否使用向量类型或SIMD操作
 bool VectorizationAnalyzer::isVectorizedInstruction(Instruction *I)
 {   
-    errs() << "===== Function:isVectorizedInstruction =====\n";
+    // errs() << "===== Function:isVectorizedInstruction =====\n";
     if (!I)
         return false;
 
@@ -61,7 +61,7 @@ bool VectorizationAnalyzer::isVectorizedInstruction(Instruction *I)
 // 获取向量类型的宽度
 int VectorizationAnalyzer::getVectorWidth(Type *Ty)
 {
-    errs() << "===== Function:getVectorWidth =====\n";
+    // errs() << "===== Function:getVectorWidth =====\n";
     if (!Ty || !Ty->isVectorTy())
         return 0;
         
@@ -82,7 +82,7 @@ int VectorizationAnalyzer::getVectorWidth(Type *Ty)
 // 检测函数中是否有SIMD内部函数调用
 bool VectorizationAnalyzer::detectSIMDIntrinsics(Function &F)
 {
-    errs() << "===== Function:detectSIMDIntrinsics =====\n";
+    // errs() << "===== Function:detectSIMDIntrinsics =====\n";
     for (auto &BB : F)
     {
         for (auto &I : BB)
@@ -152,7 +152,7 @@ bool VectorizationAnalyzer::detectSIMDIntrinsics(Function &F)
 // 检查循环是否显示出向量化模式
 bool VectorizationAnalyzer::isVectorLoopPattern(Loop *L)
 {
-    errs() << "===== Function:isVectorLoopPattern =====\n";
+    // errs() << "===== Function:isVectorLoopPattern =====\n";
     if (!L)
         return false;
 
@@ -262,7 +262,7 @@ bool VectorizationAnalyzer::isVectorLoopPattern(Loop *L)
 // 递归检查值是否参与了向量操作
 bool VectorizationAnalyzer::hasVectorOperations(Value *V, std::set<Value *> &Visited)
 {   
-    errs() << "===== Function:hasVectorOperations =====\n";
+    // errs() << "===== Function:hasVectorOperations =====\n";
     if (!V || !Visited.insert(V).second)
         return false;
 

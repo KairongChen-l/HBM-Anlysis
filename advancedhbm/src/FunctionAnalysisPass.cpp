@@ -70,7 +70,7 @@ FunctionAnalysisPass::run(Function &F, FunctionAnalysisManager &FAM)
     // 所有调用free或者释放的指令
     std::vector<CallInst *> freeCalls;
 
-    // 遍历所有基本块和指令，寻找malloc和free调用
+    // In FunctionAnalysisPass.cpp, modify the loop in run() that detects allocations:
     for (auto &BB : F)
     {
         for (auto &I : BB)
@@ -78,206 +78,146 @@ FunctionAnalysisPass::run(Function &F, FunctionAnalysisManager &FAM)
             if (auto *CI = dyn_cast<CallInst>(&I))
             {
                 Function *Callee = CI->getCalledFunction();
-                if (!Callee)
-                    continue;
 
-                // 获取函数名
-                StringRef CalleeName = Callee->getName();
+                // Create a helper function to recognize allocations
+                bool isAllocation = false;
+                uint64_t allocSize = 0;
+                std::string allocType = "";
 
-                // 识别malloc调用
-                if (CalleeName == "malloc")
+                if (Callee)
                 {
-                    MallocRecord MR;
-                    MR.MallocCall = CI;
+                    StringRef CalleeName = Callee->getName();
 
-                    // 增加对参数的检查
-                    if (CI->arg_size() >= 1)
+                    // Standard malloc/calloc functions
+                    if (CalleeName == "malloc")
                     {
-                        MR.AllocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
-
-                        // 跳过极小的分配，通常不需要移到HBM
-                        if (MR.AllocSize < minAllocationSize)
+                        isAllocation = true;
+                        allocType = "malloc";
+                        if (CI->arg_size() >= 1)
                         {
-                            LLVM_DEBUG(dbgs() << "Skipping small allocation of size "
-                                              << MR.AllocSize << " bytes\n");
-                            continue;
+                            allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
                         }
                     }
-                    else
+                    else if (CalleeName == "calloc")
                     {
-                        // 异常情况，malloc应该至少有一个参数
-                        errs() << "Warning: malloc call without arguments in "
-                               << F.getName() << "\n";
-                        errs() << "Warning: malloc call without arguments in "
-                               << F.getName() << "\n";
-                        continue;
-                    }
-
-                    // 检查返回类型是否为指针类型
-                    if (!CI->getType()->isPointerTy())
-                    {
-                        LLVM_DEBUG(dbgs() << "Malloc call does not return a pointer in "
-                                          << F.getName() << "\n");
-                        continue;
-                    }
-
-                    // 检查是否通过属性或元数据标记为热点
-                    if (F.hasFnAttribute("hot_mem"))
-                        MR.UserForcedHot = true;
-                    if (CI->hasMetadata("hot_mem"))
-                        MR.UserForcedHot = true;
-
-                    // 记录源代码位置信息
-                    setSourceLocation(CI, F, MR);
-
-                    // 检查是否为并行函数调用
-                    MR.IsParallel = parallelFound;
-
-                    // 分析并评分
-                    const LoopAccessInfo *LAI = nullptr;
-
-                    if (auto *L = LI.getLoopFor(CI->getParent()))
-                    {
-                        try
+                        isAllocation = true;
+                        allocType = "calloc";
+                        if (CI->arg_size() >= 2)
                         {
-                            LAI = &FAM.getResult<LoopAccessAnalysis>(F).getInfo(*L);
-                        }
-                        catch (const std::exception &)
-                        {
-                            // 如果无法获取LoopAccessInfo，继续但不使用它
-                            LAI = nullptr;
+                            uint64_t numElements = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
+                            uint64_t elemSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(1));
+                            allocSize = numElements * elemSize;
                         }
                     }
-
-                    if (AA && MSSA)
+                    else if (CalleeName == "realloc")
                     {
-                        MR.Score = analyzeMallocStatic(CI, F, LI, SE, *AA, *MSSA, LAI, MR);
-                        // 记录到结果中
-                        FMI.MallocRecords.push_back(MR);
-                    }
-                }
-                // 识别C++ new操作符
-                else if (CalleeName.starts_with("_Znwm") || CalleeName.starts_with("_Znam"))
-                {
-                    MallocRecord MR;
-                    MR.MallocCall = CI;
-
-                    // 增加参数检查
-                    if (CI->arg_size() >= 1)
-                    {
-                        MR.AllocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
-
-                        // 跳过极小的分配
-                        if (MR.AllocSize < minAllocationSize)
+                        isAllocation = true;
+                        allocType = "realloc";
+                        if (CI->arg_size() >= 2)
                         {
-                            continue;
+                            allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(1));
                         }
                     }
-                    else
+                    // C++ allocation functions
+                    else if (CalleeName.starts_with("_Znwm") || CalleeName.starts_with("_Znam"))
                     {
-                        LLVM_DEBUG(dbgs() << "C++ new operator without size argument in "
-                                          << F.getName() << "\n");
-                        errs() << "Warning: C++ new operator without size argument in "
-                               << F.getName() << "\n";
-                        continue;
-                    }
-
-                    // 检查返回类型是否为指针类型
-                    if (!CI->getType()->isPointerTy())
-                    {
-                        continue;
-                    }
-
-                    // 设置源码位置信息
-                    setSourceLocation(CI, F, MR);
-
-                    if (F.hasFnAttribute("hot_mem"))
-                        MR.UserForcedHot = true;
-                    if (CI->hasMetadata("hot_mem"))
-                        MR.UserForcedHot = true;
-
-                    MR.IsParallel = parallelFound;
-
-                    const LoopAccessInfo *LAI = nullptr;
-                    if (auto *L = LI.getLoopFor(CI->getParent()))
-                    {
-                        try
+                        isAllocation = true;
+                        allocType = "new";
+                        if (CI->arg_size() >= 1)
                         {
-                            LAI = &FAM.getResult<LoopAccessAnalysis>(F).getInfo(*L);
-                        }
-                        catch (const std::exception &)
-                        {
-                            LAI = nullptr;
+                            allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
                         }
                     }
-
-                    if (AA && MSSA)
+                    // Custom allocators (more aggressive matching)
+                    else if (CalleeName.contains("alloc") || CalleeName.contains("Alloc") ||
+                             CalleeName.contains("create") || CalleeName.contains("Create") ||
+                             CalleeName.contains("get") || CalleeName.contains("Get"))
                     {
-                        MR.Score = analyzeMallocStatic(CI, F, LI, SE, *AA, *MSSA, LAI, MR);
-                        FMI.MallocRecords.push_back(MR);
-                    }
-                }
-                // 识别free调用
-                else if (CalleeName == "free")
-                {
-                    freeCalls.push_back(CI);
-                }
-                // 识别C++ delete操作符
-                else if (CalleeName.starts_with("_ZdlPv") || CalleeName.starts_with("_ZdaPv"))
-                {
-                    freeCalls.push_back(CI);
-                }
-                // 添加对自定义内存分配函数的识别
-                else if (CalleeName.contains("alloc") || CalleeName.contains("Alloc"))
-                {
-                    // 可能是自定义的分配函数，进一步分析
-                    if (CI->arg_size() >= 1 && CI->getType()->isPointerTy())
-                    {
-                        MallocRecord MR;
-                        MR.MallocCall = CI;
 
-                        // 尝试推断分配大小
-                        for (unsigned i = 0; i < CI->arg_size(); ++i)
+                        // Check return type is pointer
+                        if (CI->getType()->isPointerTy())
                         {
-                            Value *Arg = CI->getArgOperand(i);
-                            if (Arg->getType()->isIntegerTy())
+                            // Check if any argument is a size
+                            for (unsigned i = 0; i < CI->arg_size(); ++i)
                             {
-                                MR.AllocSize = PointerUtils::getConstantAllocSize(Arg);
-                                if (MR.AllocSize > 0)
+                                Value *Arg = CI->getArgOperand(i);
+                                if (Arg->getType()->isIntegerTy())
                                 {
-                                    break;
+                                    uint64_t potentialSize = PointerUtils::getConstantAllocSize(Arg);
+                                    if (potentialSize > 0)
+                                    {
+                                        isAllocation = true;
+                                        allocSize = potentialSize;
+                                        allocType = CalleeName.str();
+                                        break;
+                                    }
                                 }
                             }
                         }
-
-                        // 设置源码位置
-                        setSourceLocation(CI, F, MR);
-
-                        if (F.hasFnAttribute("hot_mem"))
-                            MR.UserForcedHot = true;
-                        if (CI->hasMetadata("hot_mem"))
-                            MR.UserForcedHot = true;
-
-                        MR.IsParallel = parallelFound;
-
-                        const LoopAccessInfo *LAI = nullptr;
-                        if (auto *L = LI.getLoopFor(CI->getParent()))
+                    }
+                }
+                else
+                {
+                    // Handle indirect calls that look like allocations
+                    if (CI->getType()->isPointerTy() && CI->arg_size() > 0)
+                    {
+                        Value *CalledValue = CI->getCalledOperand();
+                        // If the called value has "alloc" in its name or types match malloc pattern
+                        if ((CalledValue->getName().contains("alloc") ||
+                             CalledValue->getName().contains("Alloc")) &&
+                            CI->getArgOperand(0)->getType()->isIntegerTy())
                         {
-                            try
-                            {
-                                LAI = &FAM.getResult<LoopAccessAnalysis>(F).getInfo(*L);
-                            }
-                            catch (const std::exception &)
-                            {
-                                LAI = nullptr;
-                            }
-                        }
 
-                        if (AA && MSSA && MR.AllocSize > 16)
-                        {
-                            MR.Score = analyzeMallocStatic(CI, F, LI, SE, *AA, *MSSA, LAI, MR);
-                            FMI.MallocRecords.push_back(MR);
+                            isAllocation = true;
+                            allocType = "indirect_alloc";
+                            allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
                         }
+                    }
+                }
+
+                // Process the allocation if found
+                if (isAllocation && CI->getType()->isPointerTy())
+                {
+                    MallocRecord MR;
+                    MR.MallocCall = CI;
+                    MR.AllocSize = allocSize;
+                    setSourceLocation(CI, F, MR);
+
+                    // Skip extremely small allocations
+                    if (MR.AllocSize < minAllocationSize)
+                    {
+                        LLVM_DEBUG(dbgs() << "Skipping small allocation of size "
+                                          << MR.AllocSize << " bytes\n");
+                        continue;
+                    }
+
+                    // Check for hot memory attributes
+                    if (F.hasFnAttribute("hot_mem"))
+                        MR.UserForcedHot = true;
+                    if (CI->hasMetadata("hot_mem"))
+                        MR.UserForcedHot = true;
+
+                    // Check for parallel execution
+                    MR.IsParallel = parallelFound;
+
+                    // Analyze and score the allocation
+                    const LoopAccessInfo *LAI = nullptr;
+                    if (auto *L = LI.getLoopFor(CI->getParent()))
+                    {
+                        try
+                        {
+                            LAI = &FAM.getResult<LoopAccessAnalysis>(F).getInfo(*L);
+                        }
+                        catch (const std::exception &)
+                        {
+                            LAI = nullptr;
+                        }
+                    }
+
+                    if (AA && MSSA)
+                    {
+                        MR.Score = analyzeMallocStatic(CI, F, LI, SE, *AA, *MSSA, LAI, MR);
+                        FMI.MallocRecords.push_back(MR);
                     }
                 }
             }

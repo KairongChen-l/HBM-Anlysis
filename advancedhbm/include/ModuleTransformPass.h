@@ -16,7 +16,6 @@ namespace MyHBM
     {
     public:
         ModuleTransformPass() = default;
-
         // 主要转换入口点
         llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &MAM);
 

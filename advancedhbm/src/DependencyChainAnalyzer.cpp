@@ -14,7 +14,7 @@ using namespace MyHBM;
 
 // Clear all data structures
 void DependencyChainAnalyzer::clear() {
-  errs() << "===== Function:clear =====\n";
+  // errs() << "===== Function:clear =====\n";
   // Free all allocated DependencyNodes
   for (auto &Entry : NodeMap) {
     delete Entry.second;
@@ -26,7 +26,7 @@ void DependencyChainAnalyzer::clear() {
 
 // Check if an instruction is a memory operation
 bool DependencyChainAnalyzer::isMemoryOperation(Instruction *I) {
-  errs() << "===== Function:isMemoryOperation =====\n";
+  // errs() << "===== Function:isMemoryOperation =====\n";
   if (!I) return false;
   
   if (isa<LoadInst>(I) || isa<StoreInst>(I) || isa<AtomicRMWInst>(I) || 
@@ -48,7 +48,7 @@ bool DependencyChainAnalyzer::isMemoryOperation(Instruction *I) {
 
 // Build dependency graph for the function
 void DependencyChainAnalyzer::buildDependencyGraph() {
-  errs() << "===== Function:buildDependencyGraph =====\n";
+  // errs() << "===== Function:buildDependencyGraph =====\n";
   // Clear previous data
   clear();
   
@@ -162,7 +162,7 @@ void DependencyChainAnalyzer::buildDependencyGraph() {
 
 // Calculate critical path latencies for all nodes
 void DependencyChainAnalyzer::calculateCriticalPathLatencies() {
-  errs() << "===== Function:calculateCriticalPathLatencies =====\n";
+  // errs() << "===== Function:calculateCriticalPathLatencies =====\n";
   // Find all nodes with no dependencies (entry points)
   std::vector<DependencyNode*> EntryNodes;
   for (auto &Entry : NodeMap) {
@@ -260,7 +260,7 @@ void DependencyChainAnalyzer::calculateCriticalPathLatencies() {
 
 // Calculate memory latency sensitivity for each node
 void DependencyChainAnalyzer::calculateMemoryLatencySensitivity() {
-  errs() << "===== Function:calculateMemoryLatencySensitivity =====\n";
+  // errs() << "===== Function:calculateMemoryLatencySensitivity =====\n";
   // For each node, calculate how sensitive it is to memory latency
   for (auto &Entry : NodeMap) {
     DependencyNode *Node = Entry.second;
@@ -328,7 +328,7 @@ void DependencyChainAnalyzer::calculateMemoryLatencySensitivity() {
 
 // Estimate instruction latency (in abstract units)
 double DependencyChainAnalyzer::estimateInstructionLatency(Instruction *I) {
-  errs() << "===== Function:estimateInstructionLatency =====\n";
+  // errs() << "===== Function:estimateInstructionLatency =====\n";
   if (!I) return 0.0;
   
   // These latencies are approximate and architecture-dependent
@@ -418,7 +418,7 @@ double DependencyChainAnalyzer::estimateInstructionLatency(Instruction *I) {
 
 // Trace a value back to its original pointer
 Value* DependencyChainAnalyzer::traceToOriginalPointer(Value *V) {
-  errs() << "===== Function:traceToOriginalPointer =====\n";
+  // errs() << "===== Function:traceToOriginalPointer =====\n";
   if (!V) return nullptr;
   
   // Set to prevent cycles
@@ -464,7 +464,7 @@ Value* DependencyChainAnalyzer::traceToOriginalPointer(Value *V) {
 
 // Get all memory accesses for a specific pointer
 std::vector<Instruction*> DependencyChainAnalyzer::getMemoryAccesses(Value *Ptr) {
-  errs() << "===== Function:getMemoryAccesses =====\n";
+  // errs() << "===== Function:getMemoryAccesses =====\n";
   std::vector<Instruction*> Result;
   
   if (!Ptr) return Result;
@@ -515,7 +515,7 @@ std::vector<Instruction*> DependencyChainAnalyzer::getMemoryAccesses(Value *Ptr)
 
 // Check if an instruction is on a critical path
 bool DependencyChainAnalyzer::isOnCriticalPath(Instruction *I) {
-  errs() << "===== Function:isOnCriticalPath =====\n";
+  // errs() << "===== Function:isOnCriticalPath =====\n";
   if (!I) return false;
   
   // Make sure the dependency graph is built
@@ -529,7 +529,7 @@ bool DependencyChainAnalyzer::isOnCriticalPath(Instruction *I) {
 
 // Check if an instruction is in a critical path with given threshold
 bool DependencyChainAnalyzer::isInCriticalPath(Instruction *I, double threshold) {
-  errs() << "===== Function:isInCriticalPath =====\n";
+  // errs() << "===== Function:isInCriticalPath =====\n";
   if (!I) return false;
   
   auto It = NodeMap.find(I);
@@ -550,7 +550,7 @@ bool DependencyChainAnalyzer::isInCriticalPath(Instruction *I, double threshold)
 
 // Find all critical paths in the dependency graph
 std::vector<CriticalPath> DependencyChainAnalyzer::findAllCriticalPaths() {
-    errs() << "===== Function:findAllCriticalPaths =====\n";
+    // errs() << "===== Function:findAllCriticalPaths =====\n";
     std::vector<CriticalPath> Result;
     
     // Make sure the dependency graph is built
@@ -633,7 +633,7 @@ std::vector<CriticalPath> DependencyChainAnalyzer::findAllCriticalPaths() {
   
   // Main analysis method for a pointer
   DependencyInfo DependencyChainAnalyzer::analyzeDependencies(Value *Ptr) {
-    errs() << "===== Function:analyzeDependencies =====\n";
+    // errs() << "===== Function:analyzeDependencies =====\n";
     DependencyInfo Result;
     
     if (!Ptr) return Result;
@@ -741,7 +741,7 @@ std::vector<CriticalPath> DependencyChainAnalyzer::findAllCriticalPaths() {
   
   // Calculate latency sensitivity score for a pointer
   double DependencyChainAnalyzer::calculateLatencySensitivityScore(Value *Ptr) {
-    errs() << "===== Function:calculateLatencySensitivityScore =====\n";
+    // errs() << "===== Function:calculateLatencySensitivityScore =====\n";
     if (!Ptr) return 0.0;
     
     // Get all memory accesses for this pointer
@@ -783,7 +783,7 @@ std::vector<CriticalPath> DependencyChainAnalyzer::findAllCriticalPaths() {
   
   // Calculate bandwidth sensitivity score for a pointer
   double DependencyChainAnalyzer::calculateBandwidthSensitivityScore(Value *Ptr) {
-    errs() << "===== Function:calculateBandwidthSensitivityScore =====\n";
+    // errs() << "===== Function:calculateBandwidthSensitivityScore =====\n";
     if (!Ptr) return 0.0;
     
     // Get all memory accesses for this pointer
@@ -886,7 +886,7 @@ std::vector<CriticalPath> DependencyChainAnalyzer::findAllCriticalPaths() {
   
   // Find all critical paths in the function
   std::vector<CriticalPath> DependencyChainAnalyzer::findCriticalPaths() {
-    errs() << "===== Function:findCriticalPaths =====\n";
+    // errs() << "===== Function:findCriticalPaths =====\n";
     // Make sure the dependency graph is built
     if (NodeMap.empty()) {
       buildDependencyGraph();
@@ -897,7 +897,7 @@ std::vector<CriticalPath> DependencyChainAnalyzer::findAllCriticalPaths() {
   
   // Identify instructions that would benefit most from reduced memory latency
   std::vector<Instruction*> DependencyChainAnalyzer::rankByLatencySensitivity() {
-    errs() << "===== Function:rankByLatencySensitivity =====\n";
+    // errs() << "===== Function:rankByLatencySensitivity =====\n";
     // Make sure the dependency graph is built
     if (NodeMap.empty()) {
       buildDependencyGraph();
@@ -928,7 +928,7 @@ std::vector<CriticalPath> DependencyChainAnalyzer::findAllCriticalPaths() {
   
   // Determine if a pointer is more latency or bandwidth sensitive
   bool DependencyChainAnalyzer::isLatencySensitive(Value *Ptr) {
-    errs() << "===== Function:isLatencySensitive =====\n";
+    // errs() << "===== Function:isLatencySensitive =====\n";
     double LatencyScore = calculateLatencySensitivityScore(Ptr);
     double BandwidthScore = calculateBandwidthSensitivityScore(Ptr);
     
@@ -938,7 +938,7 @@ std::vector<CriticalPath> DependencyChainAnalyzer::findAllCriticalPaths() {
   // Check if there's a data dependency chain between two instructions
   bool DependencyChainAnalyzer::hasDataDependencyChain(Instruction *Src, Instruction *Dst, 
                                                     std::set<Instruction*> &Visited) {
-    errs() << "===== Function:hasDataDependencyChain =====\n";
+    // errs() << "===== Function:hasDataDependencyChain =====\n";
     if (!Src || !Dst) return false;
     if (Src == Dst) return true;
     if (Visited.count(Src)) return false;
@@ -958,7 +958,7 @@ std::vector<CriticalPath> DependencyChainAnalyzer::findAllCriticalPaths() {
   
   // Check if instruction is memory dependent
   bool DependencyChainAnalyzer::isMemoryDependent(Instruction *I) {
-    errs() << "===== Function:isMemoryDependent =====\n";
+    // errs() << "===== Function:isMemoryDependent =====\n";
     if (!I) return false;
     
     // Direct memory instruction

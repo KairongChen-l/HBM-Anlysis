@@ -15,7 +15,7 @@ using namespace MyHBM;
 
 // Main analysis method
 TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeTemporalLocality(Value *Ptr, Function &F) {
-  errs() << "===== Function:analyzeTemporalLocality =====\n";
+  // errs() << "===== Function:analyzeTemporalLocality =====\n";
   TemporalLocalityInfo Result;
   
   if (!Ptr) return Result;
@@ -130,7 +130,7 @@ TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeTemporalLocality(Value *Pt
 
 // Find all memory accesses to a pointer
 std::vector<Instruction*> TemporalLocalityAnalyzer::findAllMemoryAccesses(Value *Ptr, Function &F) {
-  errs() << "===== Function:findAllMemoryAccesses =====\n";
+  // errs() << "===== Function:findAllMemoryAccesses =====\n";
   std::vector<Instruction*> Accesses;
   std::set<Value*> VisitedPtrs;
   std::queue<Value*> WorkList;
@@ -201,7 +201,7 @@ std::vector<Instruction*> TemporalLocalityAnalyzer::findAllMemoryAccesses(Value 
 // Identify reuse patterns between accesses
 SmallVector<std::pair<Instruction*, Instruction*>, 8> 
 TemporalLocalityAnalyzer::identifyReusePatterns(const std::vector<Instruction*> &Accesses) {
-  errs() << "===== Function:identifyReusePatterns =====\n";
+  // errs() << "===== Function:identifyReusePatterns =====\n";
   SmallVector<std::pair<Instruction*, Instruction*>, 8> ReusePairs;
   
   // Simple sequential reuse detection
@@ -259,7 +259,7 @@ TemporalLocalityAnalyzer::identifyReusePatterns(const std::vector<Instruction*> 
 
 // Calculate distance between two instructions
 unsigned TemporalLocalityAnalyzer::calculateInstructionDistance(Instruction *I1, Instruction *I2) {
-  errs() << "===== Function:calculateInstructionDistance =====\n";
+  // errs() << "===== Function:calculateInstructionDistance =====\n";
   if (!I1 || !I2) return UINT_MAX;
   
   // If in same basic block, count instructions between them
@@ -338,7 +338,7 @@ unsigned TemporalLocalityAnalyzer::calculateInstructionDistance(Instruction *I1,
 
 // Check if there's loop-carried reuse
 bool TemporalLocalityAnalyzer::detectLoopCarriedReuse(Value *Ptr, Loop *L) {
-  errs() << "===== Function:detectLoopCarriedReuse =====\n";
+  // errs() << "===== Function:detectLoopCarriedReuse =====\n";
   if (!Ptr || !L || !SE.isSCEVable(Ptr->getType())) return false;
   
   // Check if this is an array/vector access with loop-dependent index
@@ -389,7 +389,7 @@ bool TemporalLocalityAnalyzer::detectLoopCarriedReuse(Value *Ptr, Loop *L) {
 
 // Analyze reuse pattern in a loop
 TemporalLocalityLevel TemporalLocalityAnalyzer::analyzeReusePattern(Value *Ptr, Loop *L) {
-  errs() << "===== Function:analyzeReusePattern =====\n";
+  // errs() << "===== Function:analyzeReusePattern =====\n";
   if (!Ptr || !L) return TemporalLocalityLevel::UNKNOWN;
   
   // Check if pointer is loop invariant
@@ -444,7 +444,7 @@ TemporalLocalityLevel TemporalLocalityAnalyzer::analyzeReusePattern(Value *Ptr, 
 
 // Estimate reuse distance in a loop
 unsigned TemporalLocalityAnalyzer::estimateReuseDistance(Value *Ptr, Loop *L) {
-  errs() << "===== Function:estimateReuseDistance =====\n";
+  // errs() << "===== Function:estimateReuseDistance =====\n";
   if (!Ptr || !L) return UINT_MAX;
   
   // Collect all accesses to this pointer in the loop
@@ -505,7 +505,7 @@ unsigned TemporalLocalityAnalyzer::estimateReuseDistance(Value *Ptr, Loop *L) {
 double TemporalLocalityAnalyzer::scoreTemporalLocality(TemporalLocalityLevel level, 
                                                     unsigned reuseDistance, 
                                                     bool isInLoop) {
-  errs() << "===== Function:scoreTemporalLocality =====\n";
+  // errs() << "===== Function:scoreTemporalLocality =====\n";
   double baseScore = 0.0;
   
   // Base score based on locality level
@@ -549,7 +549,7 @@ double TemporalLocalityAnalyzer::scoreTemporalLocality(TemporalLocalityLevel lev
 
 // Analyze data "keepaliveness" - how long data needs to stay in memory
 double TemporalLocalityAnalyzer::analyzeDataKeepaliveness(Value *Ptr, Function &F) {
-  errs() << "===== Function:analyzeDataKeepaliveness =====\n";
+  // errs() << "===== Function:analyzeDataKeepaliveness =====\n";
   if (!Ptr) return 1.0;
   
   // Find allocation instruction if applicable
@@ -598,7 +598,7 @@ double TemporalLocalityAnalyzer::analyzeDataKeepaliveness(Value *Ptr, Function &
 
 // Calculate overall temporal locality score 
 double TemporalLocalityAnalyzer::calculateTemporalLocalityScore(Value *Ptr, Function &F) {
-  errs() << "===== Function:calculateTemporalLocalityScore =====\n";
+  // errs() << "===== Function:calculateTemporalLocalityScore =====\n";
   // Perform full analysis
   TemporalLocalityInfo Info = analyzeTemporalLocality(Ptr, F);
   
@@ -609,7 +609,7 @@ double TemporalLocalityAnalyzer::calculateTemporalLocalityScore(Value *Ptr, Func
 // Analyze load-store pair
 // Analyze load-store pair
 TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeLoadStore(LoadInst *Load, StoreInst *Store) {
-    errs() << "===== Function:analyzeLoadStore =====\n";
+    // errs() << "===== Function:analyzeLoadStore =====\n";
     TemporalLocalityInfo Result;
     
     if (!Load || !Store) return Result;
@@ -667,7 +667,7 @@ TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeLoadStore(LoadInst *Load, 
   
   // Analyze load-load pair
   TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeLoadLoad(LoadInst *Load1, LoadInst *Load2) {
-    errs() << "===== Function:analyzeLoadLoad =====\n";
+    // errs() << "===== Function:analyzeLoadLoad =====\n";
     TemporalLocalityInfo Result;
     
     if (!Load1 || !Load2) return Result;
@@ -716,7 +716,7 @@ TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeLoadStore(LoadInst *Load, 
   
   // Analyze store-store pair
   TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeStoreStore(StoreInst *Store1, StoreInst *Store2) {
-    errs() << "===== Function:analyzeStoreStore =====\n";
+    // errs() << "===== Function:analyzeStoreStore =====\n";
     TemporalLocalityInfo Result;
     
     if (!Store1 || !Store2) return Result;
@@ -759,7 +759,7 @@ TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeLoadStore(LoadInst *Load, 
   
   // Interprocedural analysis
   TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeInterproceduralTemporalLocality(Value *Ptr, Module &M) {
-    errs() << "===== Function:analyzeInterproceduralTemporalLocality =====\n";
+    // errs() << "===== Function:analyzeInterproceduralTemporalLocality =====\n";
     TemporalLocalityInfo Result;
     
     if (!Ptr) return Result;
@@ -877,7 +877,7 @@ TemporalLocalityInfo TemporalLocalityAnalyzer::analyzeLoadStore(LoadInst *Load, 
   }
   
   bool TemporalLocalityAnalyzer::hasTemporalLocalityHints(Instruction *I) {
-    errs() << "===== Function:hasTemporalLocalityHints =====\n";
+    // errs() << "===== Function:hasTemporalLocalityHints =====\n";
     if (!I) return false;
     
     // Check for prefetch instructions

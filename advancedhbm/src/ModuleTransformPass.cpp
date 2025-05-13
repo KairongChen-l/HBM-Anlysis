@@ -26,7 +26,7 @@ using namespace MyHBM;
 
 PreservedAnalyses ModuleTransformPass::run(Module &M, ModuleAnalysisManager &MAM)
 {
-    errs() << "===== ENTERING HBM TRANSFORM PASS =====\n";
+    // errs() << "===== ENTERING HBM TRANSFORM PASS =====\n";
     // 收集所有函数中的MallocRecord
     SmallVector<MallocRecord *, 16> AllMallocs;
 
@@ -39,7 +39,7 @@ PreservedAnalyses ModuleTransformPass::run(Module &M, ModuleAnalysisManager &MAM
     // 为每个函数获取分析结果
     for (auto &F : M)
     {
-        errs() << "TransformPass on function" << F.getName() << ".\n";
+        // errs() << "TransformPass on function" << F.getName() << ".\n";
         if (F.isDeclaration())
             continue;
 
@@ -288,8 +288,8 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
 {
     // Use fixed threshold settings
     AdaptiveThresholdInfo ThresholdInfo;
-    ThresholdInfo.baseThreshold = 10.0;
-    ThresholdInfo.adjustedThreshold = 10.0;
+    ThresholdInfo.baseThreshold = Options::HBMThreshold;
+    ThresholdInfo.adjustedThreshold = Options::HBMThreshold;
     ThresholdInfo.adjustmentReason = "Using fixed threshold (disabled ProfileGuidedAnalyzer)";
 
     errs() << "[HBM] Using fixed threshold: " << ThresholdInfo.adjustedThreshold << "\n";
@@ -339,9 +339,9 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
     //     }
     // }
 
-    // Keep track of malloc functions we've found
-    std::unordered_map<Function *, StringRef> mallocFuncs;
-    std::unordered_map<Function *, StringRef> allocFuncs;
+    // Keep track of transformed functions
+    std::map<Function *, unsigned> transformedFunctions;
+    std::map<std::string, unsigned> transformedTypes;
 
     // Process each MallocRecord and decide if it should be moved to HBM
     for (auto *MR : AllMallocs)
@@ -350,25 +350,46 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
         if (!MR || !MR->MallocCall)
             continue;
 
-        // Check if it should use HBM
-        bool shouldUseHBM = MR->UserForcedHot ||
-                            (MR->Score >= ThresholdInfo.adjustedThreshold &&
-                             (used + MR->AllocSize <= capacity));
+        // Determine if we should use HBM for this allocation
+        bool shouldUseHBM = false;
+        std::string reason;
+
+        // User-forced hot memory always gets HBM
+        if (MR->UserForcedHot)
+        {
+            shouldUseHBM = true;
+            reason = "user-forced hot memory";
+        }
+        // Check score threshold
+        else if (MR->Score >= ThresholdInfo.adjustedThreshold)
+        {
+            // Check size constraints
+            if (used + MR->AllocSize <= capacity)
+            {
+                shouldUseHBM = true;
+                reason = "score above threshold";
+            }
+            else
+            {
+                reason = "HBM capacity limit reached";
+            }
+        }
+        else
+        {
+            reason = "score below threshold";
+        }
+
+        // Detailed logging
+        std::string location = getSourceLocation(MR->MallocCall);
+        errs() << "[HBM] Allocation at " << location
+               << " | Size: " << MR->AllocSize << " bytes"
+               << " | Score: " << MR->Score
+               << " | Decision: " << (shouldUseHBM ? "Move to HBM" : "Keep in RAM")
+               << " | Reason: " << reason << "\n";
 
         if (shouldUseHBM)
         {
-            // Provide detailed decision output
-            std::string location = getSourceLocation(MR->MallocCall);
-            errs() << "[HBM] Moving to HBM: " << location
-                   << " | Size: " << MR->AllocSize << " bytes"
-                   << " | Score: " << MR->Score
-                   << " | Bandwidth: " << MR->MultiDimScore.bandwidthScore
-                   << " | Latency: " << MR->MultiDimScore.latencyScore
-                   << " | Utilization: " << MR->MultiDimScore.utilizationScore
-                   << " | Size efficiency: " << MR->MultiDimScore.sizeEfficiencyScore
-                   << "\n";
-
-            // Get the called function value
+            // Get the called function
             Value *HBMAllocCallee = HBMAlloc.getCallee();
             if (HBMAllocCallee)
             {
@@ -378,40 +399,61 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
                 // Update used HBM space
                 used += MR->AllocSize;
 
-                // Keep track of which function we replaced
+                // Track which functions were transformed
+                if (Function *F = MR->MallocCall->getFunction())
+                {
+                    transformedFunctions[F]++;
+                }
+
+                // Keep track of allocation type
                 if (Function *F = MR->MallocCall->getCalledFunction())
                 {
                     if (F->getName() == "malloc")
                     {
-                        mallocFuncs[F] = "malloc";
+                        transformedTypes["malloc"]++;
                     }
                     else if (F->getName().starts_with("_Znwm") || F->getName().starts_with("_Znam"))
                     {
-                        mallocFuncs[F] = "new";
+                        transformedTypes["new"]++;
                     }
-                    else if (F->getName().contains("alloc") || F->getName().contains("Alloc"))
+                    else
                     {
-                        allocFuncs[F] = F->getName();
+                        transformedTypes[F->getName().str()]++;
                     }
+                }
+                else
+                {
+                    transformedTypes["indirect_call"]++;
                 }
             }
         }
     }
 
     // Output HBM usage statistics
-    errs() << "[ModuleTransformPass] HBM used: " << used << " bytes\n";
-
-    // Output functions that were replaced
-    errs() << "[ModuleTransformPass] Replaced malloc functions:\n";
-    for (auto &Pair : mallocFuncs)
+    errs() << "[ModuleTransformPass] HBM used: " << used << " bytes";
+    if (capacity > 0)
     {
-        errs() << "  - " << Pair.second << "\n";
+        double usagePercent = static_cast<double>(used) / static_cast<double>(capacity) * 100.0;
+        errs() << " (" << usagePercent << "% of capacity)";
+    }
+    errs() << "\n";
+
+    // Output statistics on transformed functions
+    errs() << "[ModuleTransformPass] Transformed allocation calls in "
+           << transformedFunctions.size() << " functions:\n";
+    for (auto &Pair : transformedFunctions)
+    {
+        if (Pair.first)
+        {
+            errs() << "  - " << Pair.first->getName() << ": " << Pair.second << " allocations\n";
+        }
     }
 
-    errs() << "[ModuleTransformPass] Replaced alloc functions:\n";
-    for (auto &Pair : allocFuncs)
+    // Output statistics on transformed allocation types
+    errs() << "[ModuleTransformPass] Transformed allocation types:\n";
+    for (auto &Pair : transformedTypes)
     {
-        errs() << "  - " << Pair.second << "\n";
+        errs() << "  - " << Pair.first << ": " << Pair.second << " allocations\n";
     }
 }
 
@@ -458,28 +500,52 @@ void ModuleTransformPass::generateReport(const Module &M, ArrayRef<MallocRecord 
     jsonStream << json::Value(std::move(root));
     jsonStream.flush();
 
-    // 如果没有指定报告文件，直接输出到stderr
-    if (Options::HBMReportFile.empty())
+    // Use module name in the report file
+    if (!Options::HBMReportFile.empty())
     {
-        errs() << "=== HBM Analysis Report ===\n";
-        errs() << jsonStr << "\n";
-        errs() << "===========================\n";
-    }
-    // 如果指定了报告文件，输出到文件
-    else
-    {
+        // Extract module name for the filename
+        std::string moduleName = M.getModuleIdentifier();
+        // Clean up module name to be a valid filename part
+        std::replace(moduleName.begin(), moduleName.end(), '/', '_');
+        std::replace(moduleName.begin(), moduleName.end(), '\\', '_');
+        std::replace(moduleName.begin(), moduleName.end(), ':', '_');
+
+        // Create filename with module name
+        std::string reportFileName;
+
+        // Check if HBMReportFile has an extension
+        size_t dotPos = Options::HBMReportFile.find_last_of('.');
+        if (dotPos != std::string::npos)
+        {
+            // Insert module name before extension
+            reportFileName = Options::HBMReportFile.substr(0, dotPos) +
+                             "_" + moduleName +
+                             Options::HBMReportFile.substr(dotPos);
+        }
+        else
+        {
+            // No extension, just append module name
+            reportFileName = Options::HBMReportFile + "_" + moduleName;
+        }
+
         std::error_code EC;
-        raw_fd_ostream out(Options::HBMReportFile, EC, sys::fs::OF_Text);
+        raw_fd_ostream out(reportFileName, EC, sys::fs::OF_Text);
         if (EC)
         {
-            errs() << "Cannot open report file: " << Options::HBMReportFile << " - " << EC.message() << "\n";
+            errs() << "Cannot open report file: " << reportFileName << " - " << EC.message() << "\n";
             return;
         }
 
         out << jsonStr << "\n";
-        errs() << "[ModuleTransformPass] Report written to: " << Options::HBMReportFile << "\n";
+        errs() << "[ModuleTransformPass] Report written to: " << reportFileName << "\n";
         errs() << "[ModuleTransformPass] Statistics: " << allocCount << " allocations, "
-               << movedToHBMCount << " moved to HBM"<<"\n";
+               << movedToHBMCount << " moved to HBM" << "\n";
+    }
+    else
+    {
+        errs() << "=== HBM Analysis Report for module: " << M.getModuleIdentifier() << " ===\n";
+        errs() << jsonStr << "\n";
+        errs() << "===========================\n";
     }
 }
 

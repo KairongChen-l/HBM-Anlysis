@@ -15,7 +15,7 @@ using namespace MyHBM;
 // 获取循环的估计迭代次数
 uint64_t LoopAnalyzer::getLoopTripCount(Loop *L)
 {
-    errs() << "===== Function:getLoopTripCount =====\n";
+    // errs() << "===== Function:getLoopTripCount =====\n";
     if (!L)
         return 1;
 
@@ -119,7 +119,7 @@ uint64_t LoopAnalyzer::getLoopTripCount(Loop *L)
 
 bool isArithmeticOrBitwise(const Instruction &I)
 {
-    errs() << "===== Function:isArithmeticOrBitwise =====\n";
+    // errs() << "===== Function:isArithmeticOrBitwise =====\n";
     switch (I.getOpcode())
     {
     // 算术操作
@@ -151,7 +151,7 @@ bool isArithmeticOrBitwise(const Instruction &I)
 // 分析嵌套循环的访存特性
 double LoopAnalyzer::analyzeNestedLoops(Loop *L, Value *Ptr)
 {
-    errs() << "===== Function:analyzeNestedLoops =====\n";
+    // errs() << "===== Function:analyzeNestedLoops =====\n";
     if (!L || !Ptr)
         return 0.0;
 
@@ -299,7 +299,7 @@ double LoopAnalyzer::analyzeNestedLoops(Loop *L, Value *Ptr)
 // 检查循环是否为内存密集型
 bool LoopAnalyzer::isMemoryIntensiveLoop(Loop *L)
 {
-    errs() << "===== Function:isMemoryIntensiveLoop =====\n";
+    // errs() << "===== Function:isMemoryIntensiveLoop =====\n";
     if (!L)
         return false;
 
@@ -370,7 +370,7 @@ bool LoopAnalyzer::isMemoryIntensiveLoop(Loop *L)
 // 计算循环嵌套结构得分
 double LoopAnalyzer::computeLoopNestingScore(Loop *L)
 {
-    errs() << "===== Function:computeLoopNestingScore =====\n";
+    // errs() << "===== Function:computeLoopNestingScore =====\n";
     if (!L)
         return 0.0;
 
@@ -458,7 +458,7 @@ double LoopAnalyzer::computeLoopNestingScore(Loop *L)
 // 在 LoopAnalyzer.cpp 内部定义一个辅助函数
 static bool isSameBasePtr(Value *Ptr1, Value *Ptr2, ScalarEvolution &SE)
 {
-    errs() << "===== Function:isSameBasePtr =====\n";
+    // errs() << "===== Function:isSameBasePtr =====\n";
     if (Ptr1 == Ptr2)
         return true;
 
@@ -503,7 +503,7 @@ static bool isSameBasePtr(Value *Ptr1, Value *Ptr2, ScalarEvolution &SE)
 // 分析数据访问的局部性
 LocalityType LoopAnalyzer::analyzeDataLocality(Value *Ptr, Loop *L)
 {
-    errs() << "===== Function:analyzeDateLocality =====\n";
+    // errs() << "===== Function:analyzeDateLocality =====\n";
     if (!Ptr || !L || !SE.isSCEVable(Ptr->getType()))
         return LocalityType::MODERATE; // 默认中等局部性
 
@@ -779,7 +779,7 @@ LocalityType LoopAnalyzer::analyzeDataLocality(Value *Ptr, Loop *L)
 // 分析循环中的交错访问模式
 InterleavedAccessInfo LoopAnalyzer::analyzeInterleavedAccess(Loop *L)
 {
-    errs() << "===== Function:analyzeInterleavedAccess =====\n";
+    // errs() << "===== Function:analyzeInterleavedAccess =====\n";
     InterleavedAccessInfo Result;
     Result.isInterleaved = false;
     Result.accessedArrays = 0;
