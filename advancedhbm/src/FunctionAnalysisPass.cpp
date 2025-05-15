@@ -68,7 +68,7 @@ FunctionAnalysisPass::run(Function &F, FunctionAnalysisManager &FAM)
     FunctionMallocInfo FMI;
 
     // 所有调用free或者释放的指令
-    std::vector<CallInst *> freeCalls;
+    // std::vector<CallInst *> freeCalls;
 
     // In FunctionAnalysisPass.cpp, modify the loop in run() that detects allocations:
     for (auto &BB : F)
@@ -79,153 +79,202 @@ FunctionAnalysisPass::run(Function &F, FunctionAnalysisManager &FAM)
             {
                 Function *Callee = CI->getCalledFunction();
 
-                // Create a helper function to recognize allocations
-                bool isAllocation = false;
-                uint64_t allocSize = 0;
-                std::string allocType = "";
-
-                if (Callee)
-                {
-                    StringRef CalleeName = Callee->getName();
-
-                    // Standard malloc/calloc functions
-                    if (CalleeName == "malloc")
-                    {
-                        isAllocation = true;
-                        allocType = "malloc";
-                        if (CI->arg_size() >= 1)
-                        {
-                            allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
-                        }
-                    }
-                    else if (CalleeName == "calloc")
-                    {
-                        isAllocation = true;
-                        allocType = "calloc";
-                        if (CI->arg_size() >= 2)
-                        {
-                            uint64_t numElements = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
-                            uint64_t elemSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(1));
-                            allocSize = numElements * elemSize;
-                        }
-                    }
-                    else if (CalleeName == "realloc")
-                    {
-                        isAllocation = true;
-                        allocType = "realloc";
-                        if (CI->arg_size() >= 2)
-                        {
-                            allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(1));
-                        }
-                    }
-                    // C++ allocation functions
-                    else if (CalleeName.starts_with("_Znwm") || CalleeName.starts_with("_Znam"))
-                    {
-                        isAllocation = true;
-                        allocType = "new";
-                        if (CI->arg_size() >= 1)
-                        {
-                            allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
-                        }
-                    }
-                    // Custom allocators (more aggressive matching)
-                    else if (CalleeName.contains("alloc") || CalleeName.contains("Alloc") ||
-                             CalleeName.contains("create") || CalleeName.contains("Create") ||
-                             CalleeName.contains("get") || CalleeName.contains("Get"))
-                    {
-
-                        // Check return type is pointer
-                        if (CI->getType()->isPointerTy())
-                        {
-                            // Check if any argument is a size
-                            for (unsigned i = 0; i < CI->arg_size(); ++i)
-                            {
-                                Value *Arg = CI->getArgOperand(i);
-                                if (Arg->getType()->isIntegerTy())
-                                {
-                                    uint64_t potentialSize = PointerUtils::getConstantAllocSize(Arg);
-                                    if (potentialSize > 0)
-                                    {
-                                        isAllocation = true;
-                                        allocSize = potentialSize;
-                                        allocType = CalleeName.str();
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    // Handle indirect calls that look like allocations
-                    if (CI->getType()->isPointerTy() && CI->arg_size() > 0)
-                    {
-                        Value *CalledValue = CI->getCalledOperand();
-                        // If the called value has "alloc" in its name or types match malloc pattern
-                        if ((CalledValue->getName().contains("alloc") ||
-                             CalledValue->getName().contains("Alloc")) &&
-                            CI->getArgOperand(0)->getType()->isIntegerTy())
-                        {
-
-                            isAllocation = true;
-                            allocType = "indirect_alloc";
-                            allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
-                        }
-                    }
-                }
-
-                // Process the allocation if found
-                if (isAllocation && CI->getType()->isPointerTy())
+                if (Callee && Callee->getName() == "malloc")
                 {
                     MallocRecord MR;
                     MR.MallocCall = CI;
-                    MR.AllocSize = allocSize;
-                    setSourceLocation(CI, F, MR);
 
-                    // Skip extremely small allocations
-                    if (MR.AllocSize < minAllocationSize)
+                    // 检查参数大小
+                    if (CI->arg_size() >= 1)
                     {
-                        LLVM_DEBUG(dbgs() << "Skipping small allocation of size "
-                                          << MR.AllocSize << " bytes\n");
-                        continue;
+                        Value *SizeArg = CI->getArgOperand(0);
+                        // 尝试获取常量大小
+                        if (auto *ConstSize = dyn_cast<ConstantInt>(SizeArg))
+                        {
+                            // 如果是常量大小，可以直接获取
+                            MR.AllocSize = ConstSize->getZExtValue();
+                        }
+                        else
+                        {
+                            // 如果大小不是常量，标记为未知大小
+                            MR.UnknownAllocSize = true;
+                            // 设置一个合理的非零默认值
+                            MR.AllocSize = 16; // 使用一个小但非零的默认值
+                        }
+                    }
+                    else
+                    {
+                        // 如果参数数量不对，也标记为未知大小
+                        MR.UnknownAllocSize = true;
+                        MR.AllocSize = 16;
                     }
 
-                    // Check for hot memory attributes
+                    // 设置源码位置等其他信息...
+                    setSourceLocation(CI, F, MR);
+
+                    // 检查热内存属性
                     if (F.hasFnAttribute("hot_mem"))
                         MR.UserForcedHot = true;
                     if (CI->hasMetadata("hot_mem"))
                         MR.UserForcedHot = true;
 
-                    // Check for parallel execution
+                    // 检查并行执行
                     MR.IsParallel = parallelFound;
 
-                    // Analyze and score the allocation
-                    const LoopAccessInfo *LAI = nullptr;
-                    if (auto *L = LI.getLoopFor(CI->getParent()))
-                    {
-                        try
-                        {
-                            LAI = &FAM.getResult<LoopAccessAnalysis>(F).getInfo(*L);
-                        }
-                        catch (const std::exception &)
-                        {
-                            LAI = nullptr;
-                        }
-                    }
-
+                    // 分析和评分
                     if (AA && MSSA)
                     {
+                        const LoopAccessInfo *LAI = nullptr;
+                        // 获取 LAI...
+
                         MR.Score = analyzeMallocStatic(CI, F, LI, SE, *AA, *MSSA, LAI, MR);
                         FMI.MallocRecords.push_back(MR);
                     }
                 }
+                //     // Create a helper function to recognize allocations
+                //     bool isAllocation = false;
+                //     uint64_t allocSize = 0;
+                //     std::string allocType = "";
+
+                //     if (Callee)
+                //     {
+                //         StringRef CalleeName = Callee->getName();
+
+                //         // Standard malloc/calloc functions
+                //         if (CalleeName == "malloc")
+                //         {
+                //             isAllocation = true;
+                //             allocType = "malloc";
+                //             if (CI->arg_size() >= 1)
+                //             {
+                //                 allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
+                //             }
+                //         }
+                //         else if (CalleeName == "calloc")
+                //         {
+                //             isAllocation = true;
+                //             allocType = "calloc";
+                //             if (CI->arg_size() >= 2)
+                //             {
+                //                 uint64_t numElements = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
+                //                 uint64_t elemSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(1));
+                //                 allocSize = numElements * elemSize;
+                //             }
+                //         }
+                //         else if (CalleeName == "realloc")
+                //         {
+                //             isAllocation = true;
+                //             allocType = "realloc";
+                //             if (CI->arg_size() >= 2)
+                //             {
+                //                 allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(1));
+                //             }
+                //         }
+                //         // C++ allocation functions
+                //         else if (CalleeName.starts_with("_Znwm") || CalleeName.starts_with("_Znam"))
+                //         {
+                //             isAllocation = true;
+                //             allocType = "new";
+                //             if (CI->arg_size() >= 1)
+                //             {
+                //                 allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
+                //             }
+                //         }
+                //         // Custom allocators (more aggressive matching)
+                //         else if (CalleeName.contains("alloc") || CalleeName.contains("Alloc") ||
+                //                  CalleeName.contains("create") || CalleeName.contains("Create") ||
+                //                  CalleeName.contains("get") || CalleeName.contains("Get"))
+                //         {
+
+                //             // Check return type is pointer
+                //             if (CI->getType()->isPointerTy())
+                //             {
+                //                 // Check if any argument is a size
+                //                 for (unsigned i = 0; i < CI->arg_size(); ++i)
+                //                 {
+                //                     Value *Arg = CI->getArgOperand(i);
+                //                     if (Arg->getType()->isIntegerTy())
+                //                     {
+                //                         uint64_t potentialSize = PointerUtils::getConstantAllocSize(Arg);
+                //                         if (potentialSize > 0)
+                //                         {
+                //                             isAllocation = true;
+                //                             allocSize = potentialSize;
+                //                             allocType = CalleeName.str();
+                //                             break;
+                //                         }
+                //                     }
+                //                 }
+                //             }
+                //         }
+                //     }
+                //     else
+                //     {
+                //         // Handle indirect calls that look like allocations
+                //         if (CI->getType()->isPointerTy() && CI->arg_size() > 0)
+                //         {
+                //             Value *CalledValue = CI->getCalledOperand();
+                //             // If the called value has "alloc" in its name or types match malloc pattern
+                //             if ((CalledValue->getName().contains("alloc") ||
+                //                  CalledValue->getName().contains("Alloc")) &&
+                //                 CI->getArgOperand(0)->getType()->isIntegerTy())
+                //             {
+
+                //                 isAllocation = true;
+                //                 allocType = "indirect_alloc";
+                //                 allocSize = PointerUtils::getConstantAllocSize(CI->getArgOperand(0));
+                //             }
+                //         }
+                //     }
+
+                //     // Process the allocation if found
+                //     if (isAllocation && CI->getType()->isPointerTy())
+                //     {
+                //         MallocRecord MR;
+                //         MR.MallocCall = CI;
+                //         MR.AllocSize = allocSize;
+                //         setSourceLocation(CI, F, MR);
+
+                //         // Skip extremely small allocations
+                //         if (MR.AllocSize < minAllocationSize)
+                //         {
+                //             LLVM_DEBUG(dbgs() << "Skipping small allocation of size "
+                //                               << MR.AllocSize << " bytes\n");
+                //             continue;
+                //         }
+
+                //         // Check for hot memory attributes
+                //         if (F.hasFnAttribute("hot_mem"))
+                //             MR.UserForcedHot = true;
+                //         if (CI->hasMetadata("hot_mem"))
+                //             MR.UserForcedHot = true;
+
+                //         // Check for parallel execution
+                //         MR.IsParallel = parallelFound;
+
+                //         // Analyze and score the allocation
+                //         const LoopAccessInfo *LAI = nullptr;
+                //         if (auto *L = LI.getLoopFor(CI->getParent()))
+                //         {
+                //             try
+                //             {
+                //                 LAI = &FAM.getResult<LoopAccessAnalysis>(F).getInfo(*L);
+                //             }
+                //             catch (const std::exception &)
+                //             {
+                //                 LAI = nullptr;
+                //             }
+                //         }
+
+                //         if (AA && MSSA)
+                //         {
+                //             MR.Score = analyzeMallocStatic(CI, F, LI, SE, *AA, *MSSA, LAI, MR);
+                //             FMI.MallocRecords.push_back(MR);
+                //         }
+                //     }
             }
         }
     }
-
-    // 匹配malloc和free调用
-    // matchFreeCalls(FMI, freeCalls);
 
     return FMI;
 }
@@ -264,7 +313,7 @@ double FunctionAnalysisPass::analyzeMallocStatic(
     try
     {
         MR.CrossFnInfo = CrossFnAnalyzer.analyzeCrossFunctionUsage(CI, *M);
-        Score += MR.CrossFnInfo.crossFuncScore;
+        Score += MR.CrossFnInfo.crossFuncScore * 0.8;
     }
     catch (const std::exception &e)
     {
@@ -286,31 +335,20 @@ double FunctionAnalysisPass::analyzeMallocStatic(
     try
     {
         MR.ContentionData = ContentionAnalyzer.analyzeContention(CI, F);
-        Score += MR.ContentionData.contentionScore;
+        if (MR.ContentionData.type == ContentionInfo::ContentionType::BANDWIDTH_CONTENTION)
+        {
+            // Bandwidth contention is important for HBM selection - weight higher
+            Score += MR.ContentionData.contentionScore * 1.2;
+        }
+        else
+        {
+            Score += MR.ContentionData.contentionScore;
+        }
     }
     catch (const std::exception &e)
     {
         errs() << "Warning: Contention analysis failed: " << e.what() << "\n";
     }
-
-    // 添加Profile引导分析
-    // try
-    // {
-    //     MR.ProfileInfo = ProfileAnalyzer.analyzeProfileData(CI, F);
-
-    // 添加多维度评分计算
-    //     MR.MultiDimScore = ProfileAnalyzer.computeMultiDimensionalScore(MR);
-
-    // 使用Profile数据调整分数,目前暂时不适用Profile
-    // MR.ProfileAdjustedScore = ProfileAnalyzer.adjustScoreWithProfile(Score, MR.ProfileInfo);
-    //     MR.ProfileAdjustedScore = 60;
-    // }
-    // catch (const std::exception &e)
-    // {
-    //     errs() << "Warning: Profile analysis failed: " << e.what() << "\n";
-    // 回退到基本分数
-    //     MR.ProfileAdjustedScore = Score;
-    // }
 
     // 根据分配大小调整分数 - 改进的算法
     if (MR.AllocSize > 0)
@@ -319,17 +357,30 @@ double FunctionAnalysisPass::analyzeMallocStatic(
         double sizeFactorMB = static_cast<double>(MR.AllocSize) / (1024.0 * 1024.0);
 
         // 小型分配(<1MB)得分较低，中型分配(1-64MB)得分适中，大型分配(>64MB)得分高
-        if (sizeFactorMB < 1.0)
+        if (sizeFactorMB < 0.1)
         {
-            Score += sizeFactorMB * 5.0; // 较小的奖励
+            // Very small allocations (<100KB) - minimal score
+            Score += sizeFactorMB * 3.0;
         }
-        else if (sizeFactorMB < 64.0)
+        else if (sizeFactorMB < 1.0)
         {
-            Score += 5.0 + (sizeFactorMB - 1.0) * 0.2; // 中等奖励
+            // Small allocations (100KB-1MB) - modest score
+            Score += 0.3 + (sizeFactorMB - 0.1) * 4.7;
+        }
+        else if (sizeFactorMB < 16.0)
+        {
+            // Medium allocations (1MB-16MB) - progressive score
+            Score += 5.0 + (sizeFactorMB - 1.0) * 0.5;
+        }
+        else if (sizeFactorMB < 256.0)
+        {
+            // Large allocations (16MB-256MB) - high score, diminishing returns
+            Score += 12.5 + std::log2(sizeFactorMB / 16.0) * 5.0;
         }
         else
         {
-            Score += 17.6 + std::log2(sizeFactorMB / 64.0) * 5.0; // 大型分配的奖励
+            // Very large allocations (>256MB) - high but capped score
+            Score += 20.0;
         }
     }
 
@@ -346,7 +397,10 @@ double FunctionAnalysisPass::analyzeMallocStatic(
         if (MR.AccessedBytes > 0 && MR.AccessTime > 0.0)
         {
             MR.BandwidthScore = BWAnalyzer.computeBandwidthScore(MR.AccessedBytes, MR.AccessTime);
-            Score += MR.BandwidthScore * WeightConfig::BandwidthScale;
+
+            // MODIFIED: Adjust bandwidth scaling based on whether it's stream access
+            double scalingFactor = MR.IsStreamAccess ? 1.2 : 1.0;
+            Score += MR.BandwidthScore * BandwidthScale * scalingFactor;
         }
     }
     catch (const std::exception &e)
@@ -358,100 +412,113 @@ double FunctionAnalysisPass::analyzeMallocStatic(
     if (MR.IsParallel)
         Score += WeightConfig::ParallelBonus;
 
-    // 读取性能Profile元数据
-    if (MDNode *ProfMD = CI->getMetadata("prof.memusage"))
-    {
-        if (ProfMD->getNumOperands() > 0)
-        {
-            if (auto *Op = dyn_cast<ConstantAsMetadata>(ProfMD->getOperand(0)))
-            {
-                if (auto *CInt = dyn_cast<ConstantInt>(Op->getValue()))
-                {
-                    uint64_t usage = CInt->getZExtValue();
-                    Score += std::sqrt((double)usage) / 10.0;
-                    MR.DynamicAccessCount = usage;
-                }
-            }
-        }
-    }
-
-    // Consider temporal locality
+    // Temporal locality adjustments - MODIFIED to be more nuanced
     if (MR.TemporalLocalityData.temporalLocalityScore != 0.0)
     {
-        // Temporal locality factors are already incorporated in the score during
-        // the bandwidth analysis, but we might want to adjust here based on the
-        // overall pattern
         if (MR.TemporalLocalityData.level == TemporalLocalityLevel::POOR)
         {
             // Poor temporal locality means CPU caches are ineffective
-            // This makes HBM more beneficial
+            // This makes HBM more beneficial - increase score
+            Score += 15.0;
+        }
+        else if (MR.TemporalLocalityData.level == TemporalLocalityLevel::MODERATE)
+        {
+            // Moderate locality - slight boost
             Score += 5.0;
+        }
+        else if (MR.TemporalLocalityData.level == TemporalLocalityLevel::GOOD)
+        {
+            // Good locality might make CPU cache effective
+            // This reduces the relative benefit of HBM - slight penalty
+            Score -= 5.0;
         }
         else if (MR.TemporalLocalityData.level == TemporalLocalityLevel::EXCELLENT)
         {
-            // Excellent locality might make CPU caches more effective
-            // This could reduce the relative benefit of HBM
-            Score -= 5.0;
+            // Excellent locality makes CPU caches very effective
+            // This significantly reduces the benefit of HBM - larger penalty
+            Score -= 15.0;
         }
     }
 
     // Consider bank conflict impact on HBM effectiveness
+    // Bank conflict adjustments - MODIFIED to be more calibrated
     if (MR.BankConflictScore != 0.0)
     {
-        // Bank conflict scores are already incorporated during bandwidth analysis,
-        // but we might want to weight them based on allocation size
+        double conflictImpact = MR.BankConflictScore;
 
-        // For large allocations, bank conflicts can be more impactful
+        // For large allocations, conflicts have more impact
         if (MR.AllocSize > 1024 * 1024)
-        {                                        // > 1MB
-            Score += MR.BankConflictScore * 1.5; // Increase impact by 50%
+        {
+            conflictImpact *= (1.0 + std::log2(MR.AllocSize / (1024.0 * 1024.0)) * 0.1);
         }
 
-        // Log the impact
-        errs() << "  Bank conflict adjustment to final score: "
-               << (MR.BankConflictScore * (MR.AllocSize > 1024 * 1024 ? 1.5 : 1.0))
-               << "\n";
+        Score += conflictImpact;
     }
 
+    // Dependency chain analysis
     if (MR.LatencySensitivityScore > 0.0 || MR.BandwidthSensitivityScore > 0.0)
     {
-        // Adjust score based on whether it's latency or bandwidth bound
+        // MODIFIED: More nuanced scoring based on dependency characteristics
         if (MR.IsLatencyBound)
         {
-            // For latency-bound allocations, HBM helps but not as much
             if (MR.LongestPathMemoryRatio > 0.7)
             {
-                // Memory dominates the critical path, so HBM can still help significantly
-                Score += 10.0;
+                // Memory operations dominate critical path
+                Score += 10.0 + 10.0 * MR.LongestPathMemoryRatio;
             }
             else
             {
-                // Memory is on critical path but doesn't dominate, so HBM helps less
-                Score += 5.0;
+                // Memory on critical path but not dominant
+                Score += 5.0 + 5.0 * MR.LongestPathMemoryRatio;
             }
         }
         else
         {
             // Bandwidth-bound allocations benefit strongly from HBM
-            Score += MR.BandwidthSensitivityScore * 20.0;
+            // MODIFIED: Increased bandwidth sensitivity impact
+            Score += MR.BandwidthSensitivityScore * 25.0;
 
-            // If also somewhat latency sensitive, further bonus
+            // Bonus if also somewhat latency sensitive
             if (MR.LatencySensitivityScore > 0.3)
             {
                 Score += 5.0;
             }
         }
-
-        // Log the analysis
-        errs() << "  Dependency analysis: " << MR.DependencyAnalysis << "\n";
     }
-    // 根据内存访问模式加分
+    // Memory access pattern bonuses - MODIFIED to emphasize streaming
     if (MR.IsStreamAccess)
-        Score += WeightConfig::StreamBonus;
+        Score += StreamBonus * 1.1; // Additional 10% bonus for verified streaming access
+
     if (MR.IsVectorized)
-        Score += WeightConfig::VectorBonus;
+        Score += VectorBonus;
 
     return Score;
+}
+
+// Enhanced malloc detection in FunctionAnalysisPass.cpp
+bool isAllocationFunction(StringRef FuncName)
+{
+    // Standard C/C++ allocation functions
+    if (FuncName == "malloc" ||
+        FuncName == "calloc" ||
+        FuncName == "realloc" ||
+        FuncName == "aligned_alloc" ||
+        FuncName == "posix_memalign" ||
+        FuncName.starts_with("_Znwm") || // C++ new
+        FuncName.starts_with("_Znam"))   // C++ new[]
+        return true;
+
+    // Common custom allocators often have these patterns
+    if (FuncName.contains("alloc") ||
+        FuncName.contains("Alloc") ||
+        FuncName.contains("create") ||
+        FuncName.contains("Create") ||
+        FuncName.contains("new") ||
+        FuncName.contains("New") ||
+        (FuncName.contains("get") && FuncName.contains("memory")))
+        return true;
+
+    return false;
 }
 
 // void FunctionAnalysisPass::matchFreeCalls(FunctionMallocInfo &FMI, std::vector<CallInst *> &freeCalls)

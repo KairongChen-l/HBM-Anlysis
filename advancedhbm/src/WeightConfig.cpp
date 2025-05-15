@@ -21,7 +21,7 @@ namespace MyHBM
         cl::opt<double> StreamBonus(
             "hbm-stream-bonus",
             cl::desc("Extra score for streaming usage"),
-            cl::init(50.0));
+            cl::init(75.0));
 
         cl::opt<double> VectorBonus(
             "hbm-vector-bonus",
@@ -41,8 +41,13 @@ namespace MyHBM
         // Initialize any dynamic weight configurations
         void initializeWeights()
         {
-            // Currently all weights are initialized with their defaults
-            // This function can be expanded later if needed for dynamic adjustments
+            // Now includes runtime validation that weights are in reasonable ranges
+            if (StreamBonus.getValue() < 10.0)
+                errs() << "Warning: StreamBonus value " << StreamBonus << " seems low. Recommended range is 50-100.\n";
+
+            if (AccessBaseWrite.getValue() < AccessBaseRead.getValue())
+                errs() << "Warning: Write access base score should typically be higher than read access.\n";
+
         }
 
     } // namespace WeightConfig

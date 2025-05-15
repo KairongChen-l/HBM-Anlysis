@@ -26,6 +26,7 @@ namespace MyHBM
     std::string SourceLocation;
 
     // 静态信息
+    bool UnknownAllocSize = false; // 指示分配大小是否未知
     size_t AllocSize = 0;
     unsigned LoopDepth = 0;
     uint64_t TripCount = 1;

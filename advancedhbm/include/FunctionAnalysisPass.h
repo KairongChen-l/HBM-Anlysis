@@ -34,7 +34,10 @@ namespace MyHBM
 
         // 匹配malloc对应的free调用
         //void matchFreeCalls(FunctionMallocInfo &FMI, std::vector<llvm::CallInst *> &freeCalls);
-
+        // bool isAllocationFunction(StringRef FuncName);
+        // void analyzePotentialAllocation(CallInst *CI, Function &F, FunctionMallocInfo &FMI,
+                                        // const DataLayout &DL, uint64_t minAllocationSize,
+                                        // ScalarEvolution &SE, LoopInfo &LI, AAResults &AA, MemorySSA &MSSA);
         void setSourceLocation(llvm::CallInst *CI, llvm::Function &F, MyHBM::MallocRecord &MR);
         // 用于PassBuilder的注册
         static llvm::AnalysisKey Key;

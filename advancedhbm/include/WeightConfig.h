@@ -13,33 +13,33 @@ namespace MyHBM
         //===----------------------------------------------------------------------===//
 
         // Base weights for access types
-        extern llvm::cl::opt<double> AccessBaseRead;
-        extern llvm::cl::opt<double> AccessBaseWrite;
+        extern llvm::cl::opt<double> AccessBaseRead; //0.25
+        extern llvm::cl::opt<double> AccessBaseWrite; //0.5
 
         // Feature bonus weights
-        extern llvm::cl::opt<double> StreamBonus;
-        extern llvm::cl::opt<double> VectorBonus;
-        extern llvm::cl::opt<double> ParallelBonus;
+        extern llvm::cl::opt<double> StreamBonus; // Default increased from 50.0 to 75.0
+        extern llvm::cl::opt<double> VectorBonus;// Default: 5.0
+        extern llvm::cl::opt<double> ParallelBonus;// Default: 5.0
 
         // Bandwidth scaling factor
-        extern llvm::cl::opt<double> BandwidthScale;
+        extern llvm::cl::opt<double> BandwidthScale;// Default: 2.0
 
         //===----------------------------------------------------------------------===//
         // Data locality weights
         //===----------------------------------------------------------------------===//
 
         // Weights for different locality types
-        const double LocalityExcellentBonus = 0.2; // Excellent locality (least benefit from HBM)
-        const double LocalityGoodBonus = 0.5;      // Good locality
-        const double LocalityModerateBonus = 0.8;  // Moderate locality
-        const double LocalityPoorBonus = 1.2;      // Poor locality (most benefit from HBM)
+        const double LocalityExcellentBonus = 0.2*0.3; // Excellent locality (least benefit from HBM)
+        const double LocalityGoodBonus = 0.5*0.5;      // Good locality
+        const double LocalityModerateBonus = 0.8*1.2;  // Moderate locality
+        const double LocalityPoorBonus = 1.2*1.5;      // Poor locality (most benefit from HBM)
 
         //===----------------------------------------------------------------------===//
         // Loop nesting weights
         //===----------------------------------------------------------------------===//
 
         // Weight for nested loop analysis
-        const double NestedLoopWeight = 0.3;
+        const double NestedLoopWeight = 1.5;
 
         //===----------------------------------------------------------------------===//
         // Memory parallelism weights
@@ -76,10 +76,10 @@ namespace MyHBM
         const double StrideConstantBonus = 1.2;  // Constant stride (optimal)
         const double StrideLinearBonus = 1.0;    // Linear stride (good)
         const double StrideComplexBonus = 0.8;   // Complex but regular stride
-        const double StrideIrregularBonus = 0.5; // Irregular but some streaming
+        const double StrideIrregularBonus = 0.4; // Irregular but some streaming
 
         // Inner loop bonus factor
-        const double InnerLoopBonus = 0.25;
+        const double InnerLoopBonus = 1.5;
 
         //===----------------------------------------------------------------------===//
         // Penalty weights

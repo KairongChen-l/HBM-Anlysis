@@ -105,7 +105,7 @@ double BandwidthAnalyzer::computeAccessScore(
             {
                 // 交错访问多个数组，可能是带宽密集型
                 MR.IsStreamAccess = true;
-                double interleaveBonus = StreamBonus * 0.7 * (0.5 + 0.1 * interleavedInfo.accessedArrays);
+                double interleaveBonus = StreamBonus * 0.8 * (0.6 + 0.15 * interleavedInfo.accessedArrays);
                 MR.StreamScore += interleaveBonus;
                 base += interleaveBonus;
             }
@@ -318,6 +318,10 @@ double BandwidthAnalyzer::computeAccessScore(
         MR.SSAPenalty = computeMemorySSAStructureScore(I);
         base -= MR.SSAPenalty;
 
+        // ===== 混乱度评分 =====
+        MR.ChaosPenalty = computeAccessChaosScore(PtrOperand);
+        base -= MR.ChaosPenalty;
+        
         // ===== 流式访问分析 =====
         if (PtrOperand)
         {
@@ -335,19 +339,19 @@ double BandwidthAnalyzer::computeAccessScore(
                     switch (stride)
                     {
                     case StrideType::CONSTANT:
-                        streamBonus *= StrideConstantBonus; // 常量步长，最优
+                        streamBonus *= StrideConstantBonus * 1.2; // 常量步长，最优
                         break;
                     case StrideType::LINEAR:
-                        streamBonus *= StrideLinearBonus; // 线性步长，很好
+                        streamBonus *= StrideLinearBonus * 1.1; // 线性步长，很好
                         break;
                     case StrideType::COMPLEX:
                         streamBonus *= StrideComplexBonus; // 复杂但有规律，还可以
                         break;
                     case StrideType::IRREGULAR:
-                        streamBonus *= StrideIrregularBonus; // 不规则，但仍有一定流式特性
+                        streamBonus *= StrideIrregularBonus * 0.8; // 不规则，但仍有一定流式特性
                         break;
                     default:
-                        streamBonus *= 0.3; // 未知
+                        streamBonus *= 0.25; // 未知
                         break;
                     }
                 }
@@ -364,14 +368,14 @@ double BandwidthAnalyzer::computeAccessScore(
         }
     }
 
-    // ===== 混乱度评分 =====
-    MR.ChaosPenalty = computeAccessChaosScore(PtrOperand);
-    base -= MR.ChaosPenalty;
+    // MODIFIED: Adjustment to final score calculation to reduce loop depth dominance
+    // Now logarithmic scaling with trip count and depth to avoid excessive influence
+    double depthFactor = std::log2(depth + 1) + 1;
+    double tripFactor = std::log2(std::max(2.0, static_cast<double>(tripCount))) / 2.0;
+    
+    double score = base * depthFactor * tripFactor;
 
-    // ===== 静态得分计算 =====
-    double score = base * (depth + 1) * std::sqrt((double)tripCount);
-
-    // 更新MallocRecord中的字段
+    // Update MallocRecord
     MR.Score += score;
 
     return score;

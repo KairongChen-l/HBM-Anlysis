@@ -167,123 +167,6 @@ llvm::json::Object ModuleTransformPass::createMallocRecordJSON(const MallocRecor
     return obj;
 }
 
-// void ModuleTransformPass::loadExternalProfile(Module &M, SmallVectorImpl<MallocRecord *> &AllMallocs)
-// {
-//     std::string profileFile = Options::ExternalProfileFile;
-//     errs() << "[ModuleTransformPass] Loading external profile: " << profileFile << "\n";
-
-//     // 打开Profile文件
-//     std::error_code EC;
-//     std::ifstream ifs(profileFile);
-//     if (!ifs.is_open())
-//     {
-//         errs() << "  Cannot open profile file: " << profileFile << "\n";
-//         return;
-//     }
-
-//     // 读取文件内容
-//     std::stringstream buffer;
-//     buffer << ifs.rdbuf();
-//     ifs.close();
-//     std::string contents = buffer.str();
-
-//     // 解析JSON数据
-//     Expected<json::Value> jsonOrErr = json::parse(contents);
-//     if (!jsonOrErr)
-//     {
-//         handleAllErrors(jsonOrErr.takeError(),
-//                         [&](const ErrorInfoBase &EIB)
-//                         {
-//                             errs() << "  JSON parse error: " << EIB.message() << "\n";
-//                         });
-//         return;
-//     }
-
-//     auto *arr = jsonOrErr->getAsArray();
-//     if (!arr)
-//     {
-//         errs() << "  Not a JSON array! Expected array of allocation records.\n";
-//         return;
-//     }
-
-//     // 处理JSON数据
-//     for (const auto &entry : *arr)
-//     {
-//         auto *obj = entry.getAsObject();
-//         if (!obj)
-//             continue;
-
-//         std::string funcName;
-//         if (auto funcNameVal = obj->getString("function"))
-//             funcName = funcNameVal->str();
-//         else
-//             continue; // 没有函数名，跳过
-
-//         int lineNum = 0;
-//         if (auto lineNumVal = obj->getInteger("line"))
-//             lineNum = static_cast<int>(*lineNumVal);
-
-//         double dynAccess = 0.0;
-//         if (auto dynAccessVal = obj->getNumber("dyn_access"))
-//             dynAccess = *dynAccessVal;
-
-//         double bw = 0.0;
-//         if (auto bwVal = obj->getNumber("bandwidth"))
-//             bw = *bwVal;
-
-//         bool isStrm = false;
-//         if (auto isStrmVal = obj->getBoolean("is_stream"))
-//             isStrm = *isStrmVal;
-
-//         // 查找匹配的MallocRecord
-//         for (auto *MR : AllMallocs)
-//         {
-//             if (!MR || !MR->MallocCall)
-//                 continue;
-
-//             Function *F = MR->MallocCall->getFunction();
-//             if (!F || F->getName() != funcName)
-//                 continue;
-
-//             // 检查源码位置并提取行号
-//             std::string loc = getSourceLocation(MR->MallocCall);
-//             int foundLine = 0;
-//             if (!loc.empty())
-//             {
-//                 // 优先匹配最后一个冒号前的数字
-//                 std::regex lineRegex(":([0-9]+)(?::[0-9]+)?$");
-//                 std::smatch match;
-//                 if (std::regex_search(loc, match, lineRegex) && match.size() > 1)
-//                 {
-//                     try
-//                     {
-//                         foundLine = std::stoi(match[1].str());
-//                     }
-//                     catch (const std::exception &e)
-//                     {
-//                         errs() << "  Warning: Failed to parse line number from '" << loc
-//                                << "': " << e.what() << "\n";
-//                     }
-//                 }
-//             }
-
-//             // 如果找到匹配的记录，更新其动态信息
-//             if (foundLine == lineNum)
-//             {
-//                 MR->DynamicAccessCount = static_cast<uint64_t>(dynAccess);
-//                 MR->EstimatedBandwidth = bw;
-//                 MR->IsStreamAccess = MR->IsStreamAccess || isStrm;
-//                 MR->Score += std::log2(dynAccess + 1) * 2.0;
-//                 MR->Score += bw;
-//                 if (isStrm)
-//                     MR->Score += Options::StreamBonus;
-//                 // TODO 添加这一行
-//                 // MR->ProfileAdjustedScore = MR->Score;
-//             }
-//         }
-//     }
-// }
-
 void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<MallocRecord *> &AllMallocs)
 {
     // Use fixed threshold settings
@@ -324,6 +207,26 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
         "hbm_malloc",
         FunctionType::get(Int8PtrTy, {Int64Ty}, false));
 
+    //     FunctionCallee HBMCalloc = M.getOrInsertFunction(
+    //     "hbm_calloc",
+    //     FunctionType::get(Int8PtrTy, {Int64Ty, Int64Ty}, false));
+
+    // FunctionCallee HBMRealloc = M.getOrInsertFunction(
+    //     "hbm_realloc",
+    //     FunctionType::get(Int8PtrTy, {Int8PtrTy, Int64Ty}, false));
+
+    // FunctionCallee HBMFree = M.getOrInsertFunction(
+    //     "hbm_free",
+    //     FunctionType::get(Type::getVoidTy(Ctx), {Int8PtrTy}, false));
+
+    // // For C++: Create HBM new/delete functions
+    // FunctionCallee HBMNew = M.getOrInsertFunction(
+    //     "hbm_new",
+    //     FunctionType::get(Int8PtrTy, {Int64Ty}, false));
+
+    // FunctionCallee HBMNewArray = M.getOrInsertFunction(
+    //     "hbm_new_array",
+    //     FunctionType::get(Int8PtrTy, {Int64Ty}, false));
     // Initialize memory manager function
     // FunctionCallee HBMInit = M.getOrInsertFunction(
     //     "hbm_memory_init",
@@ -343,13 +246,20 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
     std::map<Function *, unsigned> transformedFunctions;
     std::map<std::string, unsigned> transformedTypes;
 
+    // Track which pointers have been moved to HBM
+    std::set<Value *> hbmPointers;
     // Process each MallocRecord and decide if it should be moved to HBM
     for (auto *MR : AllMallocs)
     {
-        // Skip invalid records
+        // 跳过无效记录
         if (!MR || !MR->MallocCall)
             continue;
 
+        // 只处理 malloc 函数
+        Function *Callee = MR->MallocCall->getCalledFunction();
+        if (!Callee || Callee->getName() != "malloc")
+            continue;
+        
         // Determine if we should use HBM for this allocation
         bool shouldUseHBM = false;
         std::string reason;
@@ -382,7 +292,7 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
         // Detailed logging
         std::string location = getSourceLocation(MR->MallocCall);
         errs() << "[HBM] Allocation at " << location
-               << " | Size: " << MR->AllocSize << " bytes"
+               << " | Size: " <<(MR->UnknownAllocSize ? "unknown" : std::to_string(MR->AllocSize) + " bytes")
                << " | Score: " << MR->Score
                << " | Decision: " << (shouldUseHBM ? "Move to HBM" : "Keep in RAM")
                << " | Reason: " << reason << "\n";
@@ -412,18 +322,6 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
                     {
                         transformedTypes["malloc"]++;
                     }
-                    else if (F->getName().starts_with("_Znwm") || F->getName().starts_with("_Znam"))
-                    {
-                        transformedTypes["new"]++;
-                    }
-                    else
-                    {
-                        transformedTypes[F->getName().str()]++;
-                    }
-                }
-                else
-                {
-                    transformedTypes["indirect_call"]++;
                 }
             }
         }
