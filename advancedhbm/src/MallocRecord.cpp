@@ -27,8 +27,8 @@ std::string MallocRecord::ToJsonString() const
     //Obj["unmatched_free"] = UnmatchedFree;
 
     // 动态Profile
-    Obj["dynamic_access_count"] = DynamicAccessCount;
-    Obj["estimated_bandwidth"] = EstimatedBandwidth;
+    // Obj["dynamic_access_count"] = DynamicAccessCount;
+    // Obj["estimated_bandwidth"] = EstimatedBandwidth;
 
     // 带宽相关
     Obj["accessed_bytes"] = AccessedBytes;

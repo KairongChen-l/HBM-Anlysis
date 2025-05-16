@@ -1,6 +1,6 @@
 #include "ModuleTransformPass.h"
 #include "FunctionAnalysisPass.h"
-// #include "ProfileGuidedAnalyzer.h"
+#include "FunctionBandwidthAnalyzer.h"
 #include "Options.h"
 // #include "HBMMemoryManager.h"
 #include "llvm/IR/Module.h"
@@ -65,7 +65,23 @@ PreservedAnalyses ModuleTransformPass::run(Module &M, ModuleAnalysisManager &MAM
     processMallocRecords(M, AllMallocs);
     // 生成分析报告
     generateReport(M, AllMallocs, true);
-    // 此Pass修改了IR，所以不保留任何分析结果
+
+    // 整理函数分配映射
+    std::map<Function *, std::vector<MallocRecord *>> FunctionAllocations;
+    for (auto *MR : AllMallocs)
+    {
+        if (MR && MR->MallocCall)
+        {
+            Function *F = MR->MallocCall->getFunction();
+            if (F)
+            {
+                FunctionAllocations[F].push_back(MR);
+            }
+        }
+    }
+
+    // 生成函数带宽报告
+    generateFunctionBandwidthReport(M, FunctionAllocations, MAM, true);
     return PreservedAnalyses::none();
 }
 
@@ -106,8 +122,8 @@ llvm::json::Object ModuleTransformPass::createMallocRecordJSON(const MallocRecor
     obj["trip_count"] = MR->TripCount;
 
     // 动态 profile 信息
-    obj["dyn_access"] = MR->DynamicAccessCount;
-    obj["est_bw"] = MR->EstimatedBandwidth;
+    //obj["dyn_access"] = MR->DynamicAccessCount;
+    //obj["est_bw"] = MR->EstimatedBandwidth;
 
     // 分析矛盾标志
     obj["dynamic_hot_static_low"] = MR->WasDynamicHotButStaticLow;
@@ -259,7 +275,7 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
         Function *Callee = MR->MallocCall->getCalledFunction();
         if (!Callee || Callee->getName() != "malloc")
             continue;
-        
+
         // Determine if we should use HBM for this allocation
         bool shouldUseHBM = false;
         std::string reason;
@@ -292,7 +308,7 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
         // Detailed logging
         std::string location = getSourceLocation(MR->MallocCall);
         errs() << "[HBM] Allocation at " << location
-               << " | Size: " <<(MR->UnknownAllocSize ? "unknown" : std::to_string(MR->AllocSize) + " bytes")
+               << " | Size: " << (MR->UnknownAllocSize ? "unknown" : std::to_string(MR->AllocSize) + " bytes")
                << " | Score: " << MR->Score
                << " | Decision: " << (shouldUseHBM ? "Move to HBM" : "Keep in RAM")
                << " | Reason: " << reason << "\n";
@@ -355,7 +371,10 @@ void ModuleTransformPass::processMallocRecords(Module &M, SmallVectorImpl<Malloc
     }
 }
 
-void ModuleTransformPass::generateReport(const Module &M, ArrayRef<MallocRecord *> AllMallocs, bool JSONOutput)
+void ModuleTransformPass::generateReport(
+    const Module &M,
+    ArrayRef<MallocRecord *> AllMallocs,
+    bool JSONOutput)
 {
     // 创建JSON数组
     json::Array root;
@@ -382,15 +401,6 @@ void ModuleTransformPass::generateReport(const Module &M, ArrayRef<MallocRecord 
 
         root.push_back(createMallocRecordJSON(MR, true));
     }
-    // Add statistics data as an additional record
-    // json::Object statsObj;
-    // statsObj["type"] = "statistics";
-    // statsObj["total_alloc_count"] = allocCount;
-    // statsObj["total_alloc_size"] = static_cast<uint64_t>(totalAllocSize);
-    // statsObj["moved_to_hbm_count"] = movedToHBMCount;
-    // statsObj["moved_to_hbm_size"] = static_cast<uint64_t>(movedToHBMSize);
-    // // Add statistics to the report for better analysis
-    // root.push_back(std::move(statsObj));
 
     // 转换为字符串
     std::string jsonStr;
@@ -489,4 +499,129 @@ std::string ModuleTransformPass::getSourceLocation(CallInst *CI)
         return "<unknown function>:<no_dbg>";
 
     return (F->getName() + ":<no_dbg>").str();
+}
+
+void ModuleTransformPass::generateFunctionBandwidthReport(
+    const Module &M,
+    const std::map<Function *, std::vector<MallocRecord *>> &FunctionAllocations,
+    ModuleAnalysisManager &MAM,
+    bool JSONOutput)
+{
+    // 通过ModuleProxy访问FunctionAnalysisManager获取分析结果
+    auto &FAMProxy = MAM.getResult<FunctionAnalysisManagerModuleProxy>(const_cast<Module &>(M));
+    auto &FAM = FAMProxy.getManager();
+
+    // 创建ModuleBandwidthInfo对象来存储全局结果
+    ModuleBandwidthInfo ModuleInfo;
+    ModuleInfo.ModuleName = M.getModuleIdentifier();
+
+    // 分析每个函数
+    for (auto &F : M)
+    {
+        if (F.isDeclaration())
+            continue;
+
+        // 获取该函数需要的分析结果
+        LoopInfo &LI = FAM.getResult<LoopAnalysis>(const_cast<Function &>(F));
+        ScalarEvolution &SE = FAM.getResult<ScalarEvolutionAnalysis>(const_cast<Function &>(F));
+        AAResults &AA = FAM.getResult<AAManager>(const_cast<Function &>(F));
+        MemorySSA &MSSA = FAM.getResult<MemorySSAAnalysis>(const_cast<Function &>(F)).getMSSA();
+
+        // 创建分析器
+        FunctionBandwidthAnalyzer Analyzer(LI, SE, AA, MSSA);
+
+        // 获取该函数的内存分配记录
+        std::vector<MallocRecord> Allocations;
+        auto It = FunctionAllocations.find(const_cast<Function *>(&F));
+        if (It != FunctionAllocations.end())
+        {
+            for (auto *MR : It->second)
+            {
+                if (MR)
+                {
+                    Allocations.push_back(*MR);
+                }
+            }
+        }
+
+        // 分析函数
+        FunctionBandwidthInfo FuncInfo = Analyzer.analyze(const_cast<Function &>(F), Allocations);
+
+        // 添加到模块信息中
+        ModuleInfo.Functions.push_back(std::move(FuncInfo));
+    }
+
+    // 按带宽得分排序函数（从高到低）
+    std::sort(ModuleInfo.Functions.begin(), ModuleInfo.Functions.end(),
+              [](const FunctionBandwidthInfo &A, const FunctionBandwidthInfo &B)
+              {
+                  return A.BandwidthScore > B.BandwidthScore;
+              });
+
+    // 转换为JSON
+    json::Object RootObj = ModuleInfo.toJSON();
+
+    // 输出到文件或控制台
+    std::string JsonStr;
+    raw_string_ostream JsonStream(JsonStr);
+    JsonStream << json::Value(std::move(RootObj));
+    JsonStream.flush();
+
+    // 根据需要输出到文件
+    if (JSONOutput && !Options::HBMReportFile.empty())
+    {
+        // 提取模块名用于文件名
+        std::string ModuleName = M.getModuleIdentifier();
+        // 清理模块名以确保是有效的文件名部分
+        std::replace(ModuleName.begin(), ModuleName.end(), '/', '_');
+        std::replace(ModuleName.begin(), ModuleName.end(), '\\', '_');
+        std::replace(ModuleName.begin(), ModuleName.end(), ':', '_');
+
+        // 创建带有模块名的文件名
+        std::string ReportFileName = Options::HBMReportFile;
+        size_t DotPos = ReportFileName.find_last_of('.');
+        if (DotPos != std::string::npos)
+        {
+            ReportFileName = ReportFileName.substr(0, DotPos) +
+                             "_functions_" + ModuleName +
+                             ReportFileName.substr(DotPos);
+        }
+        else
+        {
+            ReportFileName += "_functions_" + ModuleName;
+        }
+
+        // 打开文件并写入
+        std::error_code EC;
+        raw_fd_ostream Out(ReportFileName, EC, sys::fs::OF_Text);
+        if (EC)
+        {
+            errs() << "Cannot open function bandwidth report file: "
+                   << ReportFileName << " - " << EC.message() << "\n";
+            // 如果无法打开文件，回退到控制台输出
+            errs() << "Outputting report to console instead:\n";
+            errs() << JsonStr << "\n";
+            return;
+        }
+
+        Out << JsonStr << "\n";
+        errs() << "[ModuleTransformPass] Function bandwidth report written to: "
+               << ReportFileName << "\n";
+        errs() << "[ModuleTransformPass] Found "
+               << ModuleInfo.Functions.size() << " functions with "
+               << std::count_if(ModuleInfo.Functions.begin(), ModuleInfo.Functions.end(),
+                                [](const FunctionBandwidthInfo &Info)
+                                {
+                                    return Info.BandwidthScore > Options::HBMThreshold;
+                                })
+               << " bandwidth-sensitive functions\n";
+    }
+    else
+    {
+        // 直接输出到控制台
+        errs() << "=== Function Bandwidth Analysis Report for module: "
+               << M.getModuleIdentifier() << " ===\n";
+        errs() << JsonStr << "\n";
+        errs() << "===========================\n";
+    }
 }

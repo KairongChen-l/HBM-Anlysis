@@ -1,5 +1,5 @@
-#ifndef TEMPORALLOCALITYANALYZER_H
-#define TEMPORALLOCALITYANALYZER_H
+#ifndef MYHBM_TEMPORALLOCALITYANALYZER_H
+#define MYHBM_TEMPORALLOCALITYANALYZER_H
 #include "AnalysisTypes.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ScalarEvolution.h"

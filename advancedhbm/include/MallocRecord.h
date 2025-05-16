@@ -38,11 +38,11 @@ namespace MyHBM
     bool IsThreadPartitioned = false;
     bool MayConflict = false;
     bool UserForcedHot = false;
-    //bool UnmatchedFree = false;
+    // bool UnmatchedFree = false;
 
     // 动态 profile
-    uint64_t DynamicAccessCount = 0;
-    double EstimatedBandwidth = 0.0;
+    // uint64_t DynamicAccessCount = 0;
+    // double EstimatedBandwidth = 0.0;
 
     // 为带宽计算添加的辅助字段
     uint64_t AccessedBytes = 0;
@@ -74,11 +74,7 @@ namespace MyHBM
     double ChaosPenalty = 0.0;
     double ConflictPenalty = 0.0;
 
-    // 新增的动态特性成员
-    // ProfileGuidedInfo ProfileInfo;
-    // double ProfileAdjustedScore = 0.0;
-
-    // Temporality 
+    // Temporality
     TemporalLocalityInfo TemporalLocalityData;
     // Bank conflict analysis
     int BankConflictSeverity = 0;       // Maps to BankConflictSeverity enum
@@ -114,4 +110,4 @@ namespace MyHBM
 
 } // namespace MyHBM
 
-#endif // MYHBM_MALLOC_RECORD_H
+#endif

@@ -20,9 +20,12 @@ namespace MyHBM
             // 使用 SmallVector 作为工作列表，适合这种短期存储的场景
             SmallVector<Value *, 8> Worklist;
 
+            // 增加一个最大遍历数
+            const unsigned MaxIterations = 10000;
+            unsigned IterCount = 0;
             Worklist.push_back(V);
 
-            while (!Worklist.empty())
+            while (!Worklist.empty() && IterCount++ < MaxIterations)
             {
                 Value *Cur = Worklist.pop_back_val();
 
@@ -86,7 +89,12 @@ namespace MyHBM
                 else if (auto *BC = dyn_cast<BitCastInst>(Cur))
                     Worklist.push_back(BC->getOperand(0));
             }
-
+            //因为遍历数过大导致退出，因为太大可能导致内存溢出
+            if (IterCount >= MaxIterations)
+            {
+                errs() << "Warning: Maximum iteration count reached in resolveBasePointer."
+                       << " Possible cycle in pointer chain.\n";
+            }
             // 无法找到基地址
             return nullptr;
         }

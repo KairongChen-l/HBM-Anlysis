@@ -14,7 +14,6 @@ using namespace MyHBM;
 
 // Clear all data structures
 void DependencyChainAnalyzer::clear() {
-  // errs() << "===== Function:clear =====\n";
   // Free all allocated DependencyNodes
   for (auto &Entry : NodeMap) {
     delete Entry.second;

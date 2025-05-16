@@ -18,6 +18,11 @@ namespace MyHBM
         ModuleTransformPass() = default;
         // 主要转换入口点
         llvm::PreservedAnalyses run(llvm::Module &M, llvm::ModuleAnalysisManager &MAM);
+        void generateFunctionBandwidthReport(
+            const llvm::Module &M,
+            const std::map<llvm::Function *, std::vector<MallocRecord *>> &FunctionAllocations,
+            llvm::ModuleAnalysisManager &MAM,
+            bool JSONOutput);
 
     private:
         // 从外部Profile文件加载性能数据

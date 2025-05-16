@@ -1,5 +1,7 @@
-#ifndef DEPENDENCYCHAINANALYZER_H
-#define DEPENDENCYCHAINANALYZER_H
+#ifndef MYHBM_DEPENDENCY_CHAINAN_ALYZER_H
+#define MYHBM_DEPENDENCY_CHAINAN_ALYZER_H
+
+#include "AnalysisTypes.h"
 
 #include "llvm/IR/Instructions.h"
 #include "llvm/Analysis/DependenceAnalysis.h"
@@ -18,66 +20,6 @@
 
 namespace MyHBM
 {
-
-    // Represents a node in the dependency graph
-    struct DependencyNode
-    {
-        llvm::Instruction *I;                // The instruction
-        std::vector<DependencyNode *> Deps;  // Dependencies (predecessor nodes)
-        std::vector<DependencyNode *> Users; // Users (successor nodes)
-        double EstimatedLatency;             // Estimated execution latency
-        double CriticalPathLatency;          // Latency of the longest path to this node
-        bool IsMemoryOp;                     // Whether this is a memory operation
-        bool IsInCriticalPath;               // Whether this is in a critical path
-        double MemoryLatencySensitivity;     // How sensitive to memory latency (0-1)
-
-        DependencyNode(llvm::Instruction *Inst)
-            : I(Inst),
-              EstimatedLatency(0.0),
-              CriticalPathLatency(0.0),
-              IsMemoryOp(false),
-              IsInCriticalPath(false),
-              MemoryLatencySensitivity(0.0) {}
-    };
-
-    // Represents a critical dependency path through the code
-    struct CriticalPath
-    {
-        std::vector<llvm::Instruction *> Instructions; // Instructions in the path
-        double TotalLatency;                           // Total estimated latency
-        unsigned MemoryDependencies;                   // Number of memory operations
-        double MemoryDependencyRatio;                  // Ratio of memory ops to total ops
-        double LatencySensitivityScore;                // Overall latency sensitivity
-
-        CriticalPath()
-            : TotalLatency(0.0),
-              MemoryDependencies(0),
-              MemoryDependencyRatio(0.0),
-              LatencySensitivityScore(0.0) {}
-    };
-
-    // Aggregated dependency information for a memory allocation
-    struct DependencyInfo
-    {
-        std::vector<CriticalPath> CriticalPaths;            // Critical paths involving this allocation
-        double LatencySensitivityScore;                     // Overall latency sensitivity score
-        double BandwidthSensitivityScore;                   // Overall bandwidth sensitivity score
-        double CriticalPathLatency;                         // Maximum critical path latency
-        bool IsLatencyBound;                                // Whether more latency sensitive than bandwidth
-        double HBMBenefitScore;                             // Estimated benefit from HBM placement
-        double LongestPathMemoryRatio;                      // Memory ops ratio in longest path
-        std::vector<llvm::Instruction *> CriticalMemoryOps; // Memory ops in critical paths
-        std::string Analysis;                               // Detailed analysis explanation
-
-        DependencyInfo()
-            : LatencySensitivityScore(0.0),
-              BandwidthSensitivityScore(0.0),
-              CriticalPathLatency(0.0),
-              IsLatencyBound(false),
-              HBMBenefitScore(0.0),
-              LongestPathMemoryRatio(0.0) {}
-    };
-
     class DependencyChainAnalyzer
     {
     private:

@@ -1,5 +1,5 @@
-#ifndef WEIGHT_CONFIG_H
-#define WEIGHT_CONFIG_H
+#ifndef MYHBM_WEIGHT_CONFIG_H
+#define MYHBM_WEIGHT_CONFIG_H
 
 #include "llvm/Support/CommandLine.h"
 

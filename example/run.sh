@@ -11,6 +11,13 @@ clang++-18 optimized.ll -o program \
                         -Wl,--wrap=malloc -Wl,--wrap=free
 
 
+# 绝对路径
+opt-18 -load-pass-plugin=/home/dell/space/HBM-Anlysis/build/advancedhbm/AdvancedHBMPlugin.so \
+                                              -passes=hbm-transform \
+                                              -hbm-report-file=report.json \
+                                              -S source.ll -o optimized.ll
+
+
 # 非侵入性
 clang-18 -flto=thin -O2 \
   -fuse-ld=lld \

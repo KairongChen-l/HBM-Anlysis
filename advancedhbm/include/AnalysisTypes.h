@@ -42,15 +42,6 @@ namespace MyHBM
     EXCELLENT // 极佳的局部性
   };
 
-  // Profile引导优化
-  struct ProfileGuidedInfo
-  {
-    bool hasProfileData = false;
-    double staticConfidence = 0.0;                            // 0.0-1.0，表示对静态分析结果的信心
-    double dynamicWeight = 0.0;                               // 动态Profile的权重
-    std::vector<std::pair<std::string, double>> hotspotHints; // 热点提示
-  };
-
   // 自适应阈值分析
   struct AdaptiveThresholdInfo
   {
@@ -130,7 +121,6 @@ namespace MyHBM
     bool hasInterleavedReadWrite = false;
   };
 
-
   enum class TemporalLocalityLevel
   {
     EXCELLENT, // Reused immediately or very frequently
@@ -154,6 +144,153 @@ namespace MyHBM
           reuseFrequency(0.0),
           isLoopInvariant(false),
           temporalLocalityScore(0.0) {}
+  };
+
+  // Represents a node in the dependency graph
+  struct DependencyNode
+  {
+    llvm::Instruction *I;                // The instruction
+    std::vector<DependencyNode *> Deps;  // Dependencies (predecessor nodes)
+    std::vector<DependencyNode *> Users; // Users (successor nodes)
+    double EstimatedLatency;             // Estimated execution latency
+    double CriticalPathLatency;          // Latency of the longest path to this node
+    bool IsMemoryOp;                     // Whether this is a memory operation
+    bool IsInCriticalPath;               // Whether this is in a critical path
+    double MemoryLatencySensitivity;     // How sensitive to memory latency (0-1)
+
+    DependencyNode(llvm::Instruction *Inst)
+        : I(Inst),
+          EstimatedLatency(0.0),
+          CriticalPathLatency(0.0),
+          IsMemoryOp(false),
+          IsInCriticalPath(false),
+          MemoryLatencySensitivity(0.0) {}
+  };
+
+  // Represents a critical dependency path through the code
+  struct CriticalPath
+  {
+    std::vector<llvm::Instruction *> Instructions; // Instructions in the path
+    double TotalLatency;                           // Total estimated latency
+    unsigned MemoryDependencies;                   // Number of memory operations
+    double MemoryDependencyRatio;                  // Ratio of memory ops to total ops
+    double LatencySensitivityScore;                // Overall latency sensitivity
+
+    CriticalPath()
+        : TotalLatency(0.0),
+          MemoryDependencies(0),
+          MemoryDependencyRatio(0.0),
+          LatencySensitivityScore(0.0) {}
+  };
+
+  // Aggregated dependency information for a memory allocation
+  struct DependencyInfo
+  {
+    std::vector<CriticalPath> CriticalPaths;            // Critical paths involving this allocation
+    double LatencySensitivityScore;                     // Overall latency sensitivity score
+    double BandwidthSensitivityScore;                   // Overall bandwidth sensitivity score
+    double CriticalPathLatency;                         // Maximum critical path latency
+    bool IsLatencyBound;                                // Whether more latency sensitive than bandwidth
+    double HBMBenefitScore;                             // Estimated benefit from HBM placement
+    double LongestPathMemoryRatio;                      // Memory ops ratio in longest path
+    std::vector<llvm::Instruction *> CriticalMemoryOps; // Memory ops in critical paths
+    std::string Analysis;                               // Detailed analysis explanation
+
+    DependencyInfo()
+        : LatencySensitivityScore(0.0),
+          BandwidthSensitivityScore(0.0),
+          CriticalPathLatency(0.0),
+          IsLatencyBound(false),
+          HBMBenefitScore(0.0),
+          LongestPathMemoryRatio(0.0) {}
+  };
+
+  // Represents the bank conflict pattern severity and type
+  enum class BankConflictSeverity
+  {
+    NONE,     // No conflicts detected
+    LOW,      // Occasional conflicts
+    MODERATE, // Regular conflicts but manageable
+    HIGH,     // Frequent conflicts with substantial impact
+    SEVERE    // Critical conflicts, severe performance impact
+  };
+
+  // Specific types of bank conflicts
+  enum class BankConflictType
+  {
+    NONE,               // No conflicts
+    SAME_BANK_ACCESS,   // Multiple accesses to same bank
+    STRIDED_CONFLICT,   // Regular access pattern causing conflicts
+    RANDOM_CONFLICT,    // Unpredictable access pattern with conflicts
+    PARTIAL_ROW_ACCESS, // Accessing parts of a row inefficiently
+    CHANNEL_IMBALANCE   // Uneven distribution across channels
+  };
+
+  // Detailed bank conflict information
+  struct BankConflictInfo
+  {
+    BankConflictSeverity severity = BankConflictSeverity::NONE;
+    BankConflictType type = BankConflictType::NONE;
+    unsigned affectedBanks = 0;          // Number of banks with conflicts
+    unsigned totalAccessedBanks = 0;     // Total number of banks accessed
+    double conflictRate = 0.0;           // Estimated percentage of conflicting accesses
+    double performanceImpact = 0.0;      // Estimated slowdown factor (1.0 = no impact)
+    bool hasBankingFunction = false;     // Whether address mapping function was determined
+    double conflictScore = 0.0;          // Score for HBM suitability (negative = worse)
+    std::vector<unsigned> bankHistogram; // Distribution of accesses across banks
+
+    // For reporting
+    std::string analysisDescription;
+
+    BankConflictInfo()
+    {
+      // Initialize bank histogram with zeros for all banks
+      bankHistogram.resize(32, 0); // Assuming 32 banks in HBM2
+    }
+  };
+
+  // Parameters for different HBM configurations
+  struct HBMConfiguration
+  {
+    unsigned numBanks;    // Number of banks
+    unsigned numChannels; // Number of channels
+    unsigned rowSize;     // Size of a row in bytes
+    unsigned bankXORBits; // Bits used for XOR banking function
+    unsigned channelBits; // Bits used for channel selection
+    unsigned addressMask; // Address bits that matter for conflicts
+
+    HBMConfiguration() : numBanks(32),
+                         numChannels(8),
+                         rowSize(1024),
+                         bankXORBits(7),
+                         channelBits(3),
+                         addressMask(0x7FFF) {} // 15 bits for bank+row addressing
+
+    // HBM2 configuration
+    static HBMConfiguration HBM2()
+    {
+      HBMConfiguration cfg;
+      cfg.numBanks = 32;
+      cfg.numChannels = 8;
+      cfg.rowSize = 1024;
+      cfg.bankXORBits = 7;
+      cfg.channelBits = 3;
+      cfg.addressMask = 0x7FFF;
+      return cfg;
+    }
+
+    // HBM3 configuration (adjust as specifications evolve)
+    static HBMConfiguration HBM3()
+    {
+      HBMConfiguration cfg;
+      cfg.numBanks = 64;
+      cfg.numChannels = 16;
+      cfg.rowSize = 1024;
+      cfg.bankXORBits = 8;
+      cfg.channelBits = 4;
+      cfg.addressMask = 0xFFFF;
+      return cfg;
+    }
   };
 } // namespace MyHBM
 
