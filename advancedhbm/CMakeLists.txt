@@ -34,10 +34,15 @@ if(NOT HBM_SOURCES)
 endif()
 
 # 添加hbm_runtime静态库
-add_library(HBMMemoryManager STATIC ${HBM_SOURCES})
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+    add_library(HBMMemoryManager SHARED ${HBM_SOURCES})
+else()
+    add_library(HBMMemoryManager SHARED ${HBM_SOURCES})
+endif()
 
 # 链接memkind库
 target_link_libraries(HBMMemoryManager PRIVATE memkind pthread)
+target_link_options(HBMMemoryManager PRIVATE -Wl,--wrap=malloc -Wl,--wrap=free)
 
 # 给外部暴露hbm_runtime的头文件
 target_include_directories(HBMMemoryManager PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../hbm_runtime)

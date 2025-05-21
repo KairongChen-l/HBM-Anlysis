@@ -17,7 +17,10 @@ if(NOT MEMKIND_FOUND)
     message(FATAL_ERROR "memkind library not found")
 endif()
 message(STATUS "Found memkind: ${MEMKIND_LIBRARIES}")
+#include_directories(/usr/include)
+#link_directories(/usr/lib64)
 
+#
 # 检查是否支持 LTO
 include(CheckIPOSupported)
 check_ipo_supported(RESULT IPO_SUPPORTED OUTPUT IPO_ERROR)
