@@ -1,4 +1,4 @@
-; ModuleID = 'source.ll'
+; ModuleID = 'test_program.c'
 source_filename = "test_program.c"
 target datalayout = "e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128"
 target triple = "x86_64-pc-linux-gnu"
@@ -763,7 +763,7 @@ define dso_local i32 @main() #0 {
 14:                                               ; preds = %0
   %15 = call i32 (ptr, ...) @printf(ptr noundef @.str.6)
   store i32 1, ptr %1, align 4
-  br label %65
+  br label %57
 
 16:                                               ; preds = %0
   %17 = load ptr, ptr %3, align 8
@@ -805,67 +805,55 @@ define dso_local i32 @main() #0 {
   store i32 0, ptr %8, align 4
   br label %35
 
-35:                                               ; preds = %44, %33
+35:                                               ; preds = %39, %33
   %36 = load i32, ptr %8, align 4
   %37 = icmp slt i32 %36, 1000
-  br i1 %37, label %38, label %47
+  br i1 %37, label %38, label %42
 
 38:                                               ; preds = %35
-  %39 = load ptr, ptr %6, align 8
-  %40 = load i32, ptr %8, align 4
-  %41 = sext i32 %40 to i64
-  %42 = getelementptr inbounds ptr, ptr %39, i64 %41
-  %43 = load ptr, ptr %42, align 8
-  call void @free(ptr noundef %43) #4
-  br label %44
+  br label %39
 
-44:                                               ; preds = %38
-  %45 = load i32, ptr %8, align 4
-  %46 = add nsw i32 %45, 1
-  store i32 %46, ptr %8, align 4
+39:                                               ; preds = %38
+  %40 = load i32, ptr %8, align 4
+  %41 = add nsw i32 %40, 1
+  store i32 %41, ptr %8, align 4
   br label %35, !llvm.loop !30
 
-47:                                               ; preds = %35
-  %48 = load ptr, ptr %6, align 8
-  call void @free(ptr noundef %48) #4
+42:                                               ; preds = %35
   call void @multidimensional_array()
   call void @cross_function_memory()
-  %49 = load ptr, ptr %3, align 8
-  call void @free(ptr noundef %49) #4
-  %50 = call noalias ptr @malloc(i64 noundef 40) #5
-  store ptr %50, ptr %9, align 8
+  %43 = call noalias ptr @malloc(i64 noundef 40) #5
+  store ptr %43, ptr %9, align 8
   store i32 0, ptr %10, align 4
-  br label %51
+  br label %44
 
-51:                                               ; preds = %60, %47
-  %52 = load i32, ptr %10, align 4
-  %53 = icmp slt i32 %52, 10
-  br i1 %53, label %54, label %63
+44:                                               ; preds = %53, %42
+  %45 = load i32, ptr %10, align 4
+  %46 = icmp slt i32 %45, 10
+  br i1 %46, label %47, label %56
 
-54:                                               ; preds = %51
-  %55 = load i32, ptr %10, align 4
-  %56 = load ptr, ptr %9, align 8
-  %57 = load i32, ptr %10, align 4
-  %58 = sext i32 %57 to i64
-  %59 = getelementptr inbounds i32, ptr %56, i64 %58
-  store i32 %55, ptr %59, align 4
-  br label %60
+47:                                               ; preds = %44
+  %48 = load i32, ptr %10, align 4
+  %49 = load ptr, ptr %9, align 8
+  %50 = load i32, ptr %10, align 4
+  %51 = sext i32 %50 to i64
+  %52 = getelementptr inbounds i32, ptr %49, i64 %51
+  store i32 %48, ptr %52, align 4
+  br label %53
 
-60:                                               ; preds = %54
-  %61 = load i32, ptr %10, align 4
-  %62 = add nsw i32 %61, 1
-  store i32 %62, ptr %10, align 4
-  br label %51, !llvm.loop !31
+53:                                               ; preds = %47
+  %54 = load i32, ptr %10, align 4
+  %55 = add nsw i32 %54, 1
+  store i32 %55, ptr %10, align 4
+  br label %44, !llvm.loop !31
 
-63:                                               ; preds = %51
-  %64 = load ptr, ptr %9, align 8
-  call void @free(ptr noundef %64) #4
+56:                                               ; preds = %44
   store i32 0, ptr %1, align 4
-  br label %65
+  br label %57
 
-65:                                               ; preds = %63, %14
-  %66 = load i32, ptr %1, align 4
-  ret i32 %66
+57:                                               ; preds = %56, %14
+  %58 = load i32, ptr %1, align 4
+  ret i32 %58
 }
 
 attributes #0 = { noinline nounwind optnone uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }

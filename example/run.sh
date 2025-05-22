@@ -38,3 +38,17 @@ clang-18 -flto=thin -O2   -fuse-ld=lld \
       -Wl,--wrap=malloc -Wl,--wrap=free \
         -lmemkind -lpthread  \
          -lstdc++ -lc++abi -lgcc -lm -o main
+
+
+
+-I/opt/memkind/include         # 添加头文件搜索路径
+-L/opt/memkind/lib             # 添加库文件搜索路径
+-lmemkind                      # 链接 memkind 库
+
+export PKG_CONFIG_PATH=/opt/memkind/lib/pkgconfig:$PKG_CONFIG_PATH
+pkg-config --cflags --libs memkind
+
+
+export LD_LIBRARY_PATH=/opt/memkind/lib:$LD_LIBRARY_PATH
+echo "/opt/memkind/lib" | sudo tee /etc/ld.so.conf.d/memkind.conf
+sudo ldconfig

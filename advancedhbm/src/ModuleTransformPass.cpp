@@ -122,8 +122,8 @@ llvm::json::Object ModuleTransformPass::createMallocRecordJSON(const MallocRecor
     obj["trip_count"] = MR->TripCount;
 
     // 动态 profile 信息
-    //obj["dyn_access"] = MR->DynamicAccessCount;
-    //obj["est_bw"] = MR->EstimatedBandwidth;
+    // obj["dyn_access"] = MR->DynamicAccessCount;
+    // obj["est_bw"] = MR->EstimatedBandwidth;
 
     // 分析矛盾标志
     obj["dynamic_hot_static_low"] = MR->WasDynamicHotButStaticLow;
