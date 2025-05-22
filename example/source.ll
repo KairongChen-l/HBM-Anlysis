@@ -444,7 +444,7 @@ define dso_local void @multidimensional_array() #0 {
   store i32 100, ptr %1, align 4
   store i32 100, ptr %2, align 4
   store i32 100, ptr %3, align 4
-  %12 = call noalias ptr @malloc(i64 noundef 800) #5
+  %12 = call noalias ptr @hbm_malloc(i64 noundef 800) #5
   store ptr %12, ptr %4, align 8
   store i32 0, ptr %5, align 4
   br label %13
@@ -455,7 +455,7 @@ define dso_local void @multidimensional_array() #0 {
   br i1 %15, label %16, label %42
 
 16:                                               ; preds = %13
-  %17 = call noalias ptr @malloc(i64 noundef 800) #5
+  %17 = call noalias ptr @hbm_malloc(i64 noundef 800) #5
   %18 = load ptr, ptr %4, align 8
   %19 = load i32, ptr %5, align 4
   %20 = sext i32 %19 to i64
@@ -470,7 +470,7 @@ define dso_local void @multidimensional_array() #0 {
   br i1 %24, label %25, label %38
 
 25:                                               ; preds = %22
-  %26 = call noalias ptr @malloc(i64 noundef 400) #5
+  %26 = call noalias ptr @hbm_malloc(i64 noundef 400) #5
   %27 = load ptr, ptr %4, align 8
   %28 = load i32, ptr %5, align 4
   %29 = sext i32 %28 to i64
@@ -628,7 +628,7 @@ define dso_local void @multidimensional_array() #0 {
 }
 
 ; Function Attrs: nounwind allocsize(0)
-declare noalias ptr @malloc(i64 noundef) #3
+declare noalias ptr @hbm_malloc(i64 noundef) #3
 
 ; Function Attrs: nounwind
 declare void @free(ptr noundef) #2
@@ -678,7 +678,7 @@ define dso_local void @cross_function_memory() #0 {
   %4 = alloca i32, align 4
   %5 = alloca i32, align 4
   store i32 1000000, ptr %1, align 4
-  %6 = call noalias ptr @malloc(i64 noundef 4000000) #5
+  %6 = call noalias ptr @hbm_malloc(i64 noundef 4000000) #5
   store ptr %6, ptr %2, align 8
   store i32 0, ptr %3, align 4
   br label %7
@@ -754,7 +754,7 @@ define dso_local i32 @main() #0 {
   %10 = alloca i32, align 4
   store i32 0, ptr %1, align 4
   store i32 10000000, ptr %2, align 4
-  %11 = call noalias ptr @malloc(i64 noundef 40000000) #5
+  %11 = call noalias ptr @hbm_malloc(i64 noundef 40000000) #5
   store ptr %11, ptr %3, align 8
   %12 = load ptr, ptr %3, align 8
   %13 = icmp ne ptr %12, null
@@ -763,7 +763,7 @@ define dso_local i32 @main() #0 {
 14:                                               ; preds = %0
   %15 = call i32 (ptr, ...) @printf(ptr noundef @.str.6)
   store i32 1, ptr %1, align 4
-  br label %57
+  br label %65
 
 16:                                               ; preds = %0
   %17 = load ptr, ptr %3, align 8
@@ -774,7 +774,7 @@ define dso_local i32 @main() #0 {
   call void @vectorizable_operation(ptr noundef %19, i32 noundef 10000000)
   store i32 1000, ptr %4, align 4
   store i32 1000, ptr %5, align 4
-  %20 = call noalias ptr @malloc(i64 noundef 8000) #5
+  %20 = call noalias ptr @hbm_malloc(i64 noundef 8000) #5
   store ptr %20, ptr %6, align 8
   store i32 0, ptr %7, align 4
   br label %21
@@ -785,7 +785,7 @@ define dso_local i32 @main() #0 {
   br i1 %23, label %24, label %33
 
 24:                                               ; preds = %21
-  %25 = call noalias ptr @malloc(i64 noundef 4000) #5
+  %25 = call noalias ptr @hbm_malloc(i64 noundef 4000) #5
   %26 = load ptr, ptr %6, align 8
   %27 = load i32, ptr %7, align 4
   %28 = sext i32 %27 to i64
@@ -805,55 +805,67 @@ define dso_local i32 @main() #0 {
   store i32 0, ptr %8, align 4
   br label %35
 
-35:                                               ; preds = %39, %33
+35:                                               ; preds = %44, %33
   %36 = load i32, ptr %8, align 4
   %37 = icmp slt i32 %36, 1000
-  br i1 %37, label %38, label %42
+  br i1 %37, label %38, label %47
 
 38:                                               ; preds = %35
-  br label %39
-
-39:                                               ; preds = %38
+  %39 = load ptr, ptr %6, align 8
   %40 = load i32, ptr %8, align 4
-  %41 = add nsw i32 %40, 1
-  store i32 %41, ptr %8, align 4
-  br label %35, !llvm.loop !30
-
-42:                                               ; preds = %35
-  call void @multidimensional_array()
-  call void @cross_function_memory()
-  %43 = call noalias ptr @malloc(i64 noundef 40) #5
-  store ptr %43, ptr %9, align 8
-  store i32 0, ptr %10, align 4
+  %41 = sext i32 %40 to i64
+  %42 = getelementptr inbounds ptr, ptr %39, i64 %41
+  %43 = load ptr, ptr %42, align 8
+  call void @free(ptr noundef %43) #4
   br label %44
 
-44:                                               ; preds = %53, %42
-  %45 = load i32, ptr %10, align 4
-  %46 = icmp slt i32 %45, 10
-  br i1 %46, label %47, label %56
+44:                                               ; preds = %38
+  %45 = load i32, ptr %8, align 4
+  %46 = add nsw i32 %45, 1
+  store i32 %46, ptr %8, align 4
+  br label %35, !llvm.loop !30
 
-47:                                               ; preds = %44
-  %48 = load i32, ptr %10, align 4
-  %49 = load ptr, ptr %9, align 8
-  %50 = load i32, ptr %10, align 4
-  %51 = sext i32 %50 to i64
-  %52 = getelementptr inbounds i32, ptr %49, i64 %51
-  store i32 %48, ptr %52, align 4
-  br label %53
+47:                                               ; preds = %35
+  %48 = load ptr, ptr %6, align 8
+  call void @free(ptr noundef %48) #4
+  call void @multidimensional_array()
+  call void @cross_function_memory()
+  %49 = load ptr, ptr %3, align 8
+  call void @free(ptr noundef %49) #4
+  %50 = call noalias ptr @hbm_malloc(i64 noundef 40) #5
+  store ptr %50, ptr %9, align 8
+  store i32 0, ptr %10, align 4
+  br label %51
 
-53:                                               ; preds = %47
-  %54 = load i32, ptr %10, align 4
-  %55 = add nsw i32 %54, 1
-  store i32 %55, ptr %10, align 4
-  br label %44, !llvm.loop !31
+51:                                               ; preds = %60, %47
+  %52 = load i32, ptr %10, align 4
+  %53 = icmp slt i32 %52, 10
+  br i1 %53, label %54, label %63
 
-56:                                               ; preds = %44
+54:                                               ; preds = %51
+  %55 = load i32, ptr %10, align 4
+  %56 = load ptr, ptr %9, align 8
+  %57 = load i32, ptr %10, align 4
+  %58 = sext i32 %57 to i64
+  %59 = getelementptr inbounds i32, ptr %56, i64 %58
+  store i32 %55, ptr %59, align 4
+  br label %60
+
+60:                                               ; preds = %54
+  %61 = load i32, ptr %10, align 4
+  %62 = add nsw i32 %61, 1
+  store i32 %62, ptr %10, align 4
+  br label %51, !llvm.loop !31
+
+63:                                               ; preds = %51
+  %64 = load ptr, ptr %9, align 8
+  call void @free(ptr noundef %64) #4
   store i32 0, ptr %1, align 4
-  br label %57
+  br label %65
 
-57:                                               ; preds = %56, %14
-  %58 = load i32, ptr %1, align 4
-  ret i32 %58
+65:                                               ; preds = %63, %14
+  %66 = load i32, ptr %1, align 4
+  ret i32 %66
 }
 
 attributes #0 = { noinline nounwind optnone uwtable "frame-pointer"="all" "min-legal-vector-width"="0" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+cmov,+cx8,+fxsr,+mmx,+sse,+sse2,+x87" "tune-cpu"="generic" }

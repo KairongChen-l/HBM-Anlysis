@@ -5,7 +5,7 @@ opt-18 -load-pass-plugin=../build/advancedhbm/AdvancedHBMPlugin.so \
                                               -S source.ll -o optimized.ll
 
 # 链接
-clang++-18 optimized.ll -o program \
+clang optimized.ll -o program \
                         ../build/advancedhbm/libHBMMemoryManager.so \
                         -lmemkind -lpthread \
                         -Wl,--wrap=malloc -Wl,--wrap=free
@@ -52,3 +52,6 @@ pkg-config --cflags --libs memkind
 export LD_LIBRARY_PATH=/opt/memkind/lib:$LD_LIBRARY_PATH
 echo "/opt/memkind/lib" | sudo tee /etc/ld.so.conf.d/memkind.conf
 sudo ldconfig
+
+
+ clang source.ll -o program  ../build/advancedhbm/libHBMMemoryManager.so  -lmemkind -ldl -lpthread
