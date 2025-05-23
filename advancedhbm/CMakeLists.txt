@@ -39,10 +39,14 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
 else()
     add_library(HBMMemoryManager SHARED ${HBM_SOURCES})
 endif()
-
+target_compile_features(HBMMemoryManager PRIVATE cxx_std_17)
+target_compile_options(HBMMemoryManager PRIVATE -fPIC -O2)
 # 链接memkind库
-target_link_libraries(HBMMemoryManager PRIVATE memkind pthread)
-target_link_options(HBMMemoryManager PRIVATE -Wl,--wrap=malloc -Wl,--wrap=free)
+#target_link_libraries(HBMMemoryManager PRIVATE memkind pthread)
+#target_link_options(HBMMemoryManager PRIVATE -Wl,--wrap=malloc -Wl,--wrap=free)
+#add_library(HBMMemoryManager SHARED ../HBMMemoryManager.cpp)
+target_link_libraries(HBMMemoryManager PUBLIC memkind numa dl pthread)
+set_target_properties(HBMMemoryManager PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # 给外部暴露hbm_runtime的头文件
 target_include_directories(HBMMemoryManager PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../hbm_runtime)
