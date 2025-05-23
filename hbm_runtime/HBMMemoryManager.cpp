@@ -526,10 +526,13 @@ void free(void *ptr)
     // ④ 查找并释放
     AllocInfo info{MemType::STANDARD, 0, MEMKIND_DEFAULT};
     bool found = false;
+    bool lock_acquired = false;
     
+    // 尝试获取锁，但不要阻塞太久
     {
         std::unique_lock lk(g_map_mtx, std::try_to_lock);
         if (lk.owns_lock()) {
+            lock_acquired = true;
             auto it = g_ptr_map.find(ptr);
             if (it != g_ptr_map.end()) {
                 info = it->second;
@@ -540,14 +543,31 @@ void free(void *ptr)
     }
     
     // ⑤ 执行释放
-    if (found && info.type != MemType::STANDARD) {
-        memkind_free(info.kind, ptr);
-    } else {
+    try {
+        if (found && info.type != MemType::STANDARD) {
+            // HBM 内存使用 memkind_free
+            memkind_free(info.kind, ptr);
+            
+            if (g_debug.load()) {
+                std::cout << "[HBM] free(" << ptr << ") via hook"
+                          << " (" << to_string(info.type) << ")\n";
+            }
+        } else {
+            // 标准内存或未找到的指针
+            // 重要：即使没有获取到锁，也要尝试释放
+            // 这可能是标准内存或者是在锁竞争时分配的内存
+            real_free(ptr);
+            
+            if (g_debug.load() && !found && lock_acquired) {
+                std::cout << "[HBM] free(" << ptr << ") via hook"
+                          << " (STANDARD/unknown)\n";
+            }
+        }
+    } catch (...) {
+        // 如果发生任何异常，尝试使用标准 free
+        if (g_debug.load()) {
+            std::cerr << "[HBM] Exception in free hook, falling back to real_free\n";
+        }
         real_free(ptr);
-    }
-    
-    if (g_debug.load() && found) {
-        std::cout << "[HBM] free(" << ptr << ") via hook"
-                  << " (" << to_string(info.type) << ")\n";
     }
 }
