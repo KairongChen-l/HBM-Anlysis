@@ -8,7 +8,6 @@
 #include <cerrno>
 #include <iostream>
 #include <mutex>
-#include <shared_mutex>
 #include <unordered_map>
 
 // 兼容性定义
@@ -25,46 +24,37 @@ using calloc_fn = void *(*)(size_t, size_t);
 using realloc_fn = void *(*)(void *, size_t);
 using posix_memalign_fn = int (*)(void **, size_t, size_t);
 
-// 原始 libc 函数指针
-malloc_fn real_malloc = nullptr;
-free_fn   real_free   = nullptr;
-calloc_fn real_calloc = nullptr;
-realloc_fn real_realloc = nullptr;
-posix_memalign_fn real_posix_memalign = nullptr;
+// 原始 libc 函数指针 - 使用 volatile 防止编译器优化
+volatile malloc_fn real_malloc = nullptr;
+volatile free_fn   real_free   = nullptr;
+volatile calloc_fn real_calloc = nullptr;
+volatile realloc_fn real_realloc = nullptr;
+volatile posix_memalign_fn real_posix_memalign = nullptr;
 
-std::atomic<bool> g_ready{false};         // 静态区是否已完成构造
+std::atomic<bool> g_initialized{false};   // 运行时是否已初始化
+std::atomic<bool> g_in_init{false};       // 是否正在初始化
 std::atomic<bool> g_debug{false};         // 调试开关
 std::atomic<bool> g_fallback_enabled{true}; // 是否启用 DRAM 回退
-std::atomic<bool> g_allow_zero_allocs{false}; // 是否允许零字节分配
-std::atomic<bool> g_trace_all_frees{false}; // 跟踪所有 free 调用
 
-// 内存类型和元数据
+// 内存类型
 enum class MemType : uint8_t { 
-    STANDARD,      // 标准内存
-    HBM_DIRECT,    // 直接 HBM 分配
-    HBM_FALLBACK   // HBM 回退到 DRAM
+    STANDARD = 0,      // 标准内存
+    HBM_DIRECT = 1,    // 直接 HBM 分配
+    HBM_FALLBACK = 2   // HBM 回退到 DRAM
 };
 
+// 简化的元数据结构
 struct AllocInfo {
     MemType type;
-    size_t size;
-    memkind_t kind;  // 记录具体的 memkind，避免 free 时查找
+    memkind_t kind;
 };
 
-// 元数据表 – 读多写少
+// 元数据表 - 使用普通 mutex 避免 shared_mutex 在某些架构上的问题
+std::mutex g_map_mtx;
 std::unordered_map<void *, AllocInfo> g_ptr_map;
-std::shared_mutex                     g_map_mtx;
 
-// 线程本地递归检测（防止死锁）
-thread_local int tls_recursion_depth = 0;
-
-// 递归保护 RAII 类
-class RecursionGuard {
-public:
-    RecursionGuard() { tls_recursion_depth++; }
-    ~RecursionGuard() { tls_recursion_depth--; }
-    bool is_recursive() const { return tls_recursion_depth > 1; }
-};
+// 使用原子变量替代 thread_local（避免 TLS 问题）
+std::atomic<int> g_recursion_count{0};
 
 inline const char *to_string(MemType t)
 {
@@ -76,96 +66,119 @@ inline const char *to_string(MemType t)
     return "UNKNOWN";
 }
 
-// 安全的 dlsym 包装
-template<typename Func>
-Func safe_dlsym(const char* name) {
-    // 使用 RTLD_NEXT 避免无限递归
-    void* sym = dlsym(RTLD_NEXT, name);
-    if (!sym) {
-        // 如果 RTLD_NEXT 失败，尝试直接从 libc 加载
-        void* libc = dlopen("libc.so.6", RTLD_LAZY);
-        if (libc) {
-            sym = dlsym(libc, name);
-            dlclose(libc);
+// 递归保护
+class RecursionGuard {
+    bool should_guard;
+public:
+    RecursionGuard() : should_guard(true) {
+        g_recursion_count.fetch_add(1, std::memory_order_relaxed);
+    }
+    ~RecursionGuard() {
+        if (should_guard) {
+            g_recursion_count.fetch_sub(1, std::memory_order_relaxed);
         }
     }
-    if (!sym) {
-        std::fprintf(stderr, "HBMMemoryManager: cannot resolve %s\n", name);
+    bool is_recursive() const { 
+        return g_recursion_count.load(std::memory_order_relaxed) > 1; 
+    }
+    void disable() { 
+        if (should_guard) {
+            g_recursion_count.fetch_sub(1, std::memory_order_relaxed);
+            should_guard = false;
+        }
+    }
+};
+
+// 初始化原始函数指针
+static void init_libc_functions()
+{
+    if (real_malloc && real_free) return;
+    
+    // 使用 RTLD_NEXT 获取下一个符号
+    real_malloc = (malloc_fn)dlsym(RTLD_NEXT, "malloc");
+    real_free = (free_fn)dlsym(RTLD_NEXT, "free");
+    real_calloc = (calloc_fn)dlsym(RTLD_NEXT, "calloc");
+    real_realloc = (realloc_fn)dlsym(RTLD_NEXT, "realloc");
+    real_posix_memalign = (posix_memalign_fn)dlsym(RTLD_NEXT, "posix_memalign");
+    
+    // 确保获取到有效的函数指针
+    if (!real_malloc || !real_free) {
+        // 尝试直接从 libc 获取
+        void *libc_handle = dlopen("libc.so.6", RTLD_LAZY | RTLD_NOLOAD);
+        if (!libc_handle) {
+            libc_handle = dlopen("libc.so", RTLD_LAZY | RTLD_NOLOAD);
+        }
+        
+        if (libc_handle) {
+            if (!real_malloc) real_malloc = (malloc_fn)dlsym(libc_handle, "malloc");
+            if (!real_free) real_free = (free_fn)dlsym(libc_handle, "free");
+            if (!real_calloc) real_calloc = (calloc_fn)dlsym(libc_handle, "calloc");
+            if (!real_realloc) real_realloc = (realloc_fn)dlsym(libc_handle, "realloc");
+            if (!real_posix_memalign) real_posix_memalign = (posix_memalign_fn)dlsym(libc_handle, "posix_memalign");
+        }
+    }
+    
+    if (!real_malloc || !real_free) {
+        std::fprintf(stderr, "HBMMemoryManager: FATAL - cannot resolve malloc/free\n");
         std::abort();
     }
-    return reinterpret_cast<Func>(sym);
 }
 
 } // namespace
 
-// ─────────────────── 运行时初始化 / 反初始化 ───────────────────
-__attribute__((constructor))
-static void init_runtime()
+// ─────────────────── 运行时初始化 ───────────────────────────
+static void do_init()
 {
-    // 防止重复初始化
-    if (g_ready.load()) return;
+    // 防止多线程同时初始化
+    bool expected = false;
+    if (!g_in_init.compare_exchange_strong(expected, true)) {
+        // 其他线程正在初始化，等待
+        while (!g_initialized.load(std::memory_order_acquire)) {
+            // 忙等待
+        }
+        return;
+    }
     
-    // 解析所有 libc 函数
-    real_malloc = safe_dlsym<malloc_fn>("malloc");
-    real_free   = safe_dlsym<free_fn>("free");
-    real_calloc = safe_dlsym<calloc_fn>("calloc");
-    real_realloc = safe_dlsym<realloc_fn>("realloc");
-    real_posix_memalign = safe_dlsym<posix_memalign_fn>("posix_memalign");
+    // 初始化 libc 函数
+    init_libc_functions();
     
-    // 检查 memkind 版本
-    int version = memkind_get_version();
-    int major = version / 1000000;
-    int minor = (version % 1000000) / 1000;
-    int patch = version % 1000;
-    
-    // 设置环境变量（如果需要）
+    // 检查环境变量
     const char* debug_env = std::getenv("HBM_DEBUG");
-    if (debug_env && std::strcmp(debug_env, "1") == 0) {
+    if (debug_env && (std::strcmp(debug_env, "1") == 0 || std::strcmp(debug_env, "true") == 0)) {
         g_debug.store(true);
     }
     
-    const char* trace_env = std::getenv("HBM_TRACE_FREE");
-    if (trace_env && std::strcmp(trace_env, "1") == 0) {
-        g_trace_all_frees.store(true);
-    }
-    
+    // 检查 memkind 版本
     if (g_debug.load()) {
-        std::cout << "[HBM] memkind version: " << major << "." << minor << "." << patch << "\n";
+        int version = memkind_get_version();
+        int major = version / 1000000;
+        int minor = (version % 1000000) / 1000;
+        int patch = version % 1000;
+        std::fprintf(stderr, "[HBM] memkind version: %d.%d.%d\n", major, minor, patch);
     }
     
     // 检查 HBM 可用性
     int ret = memkind_check_available(MEMKIND_HBW);
-    if (ret != MEMKIND_SUCCESS) {
+    if (ret != MEMKIND_SUCCESS && g_debug.load()) {
         char errmsg[MEMKIND_ERROR_MESSAGE_SIZE];
         memkind_error_message(ret, errmsg, sizeof(errmsg));
-        if (g_debug.load()) {
-            std::fprintf(stderr, "HBMMemoryManager: HBM not available: %s\n", errmsg);
-        }
+        std::fprintf(stderr, "[HBM] Warning: HBM not available: %s\n", errmsg);
     }
     
-    g_ready.store(true, std::memory_order_release);
+    // 标记初始化完成
+    g_initialized.store(true, std::memory_order_release);
+    g_in_init.store(false);
     
     if (g_debug.load()) {
-        std::cout << "[HBM] Runtime initialized\n";
+        std::fprintf(stderr, "[HBM] Runtime initialized\n");
     }
 }
 
-__attribute__((destructor))
-static void fini_runtime()
+// 确保初始化的内联函数
+inline static void ensure_init()
 {
-    g_ready.store(false, std::memory_order_release);
-    
-    // 检查内存泄漏
-    {
-        std::shared_lock lk(g_map_mtx);
-        if (!g_ptr_map.empty() && g_debug.load()) {
-            std::fprintf(stderr, "[HBM] Warning: %zu allocations not freed\n", 
-                        g_ptr_map.size());
-            for (const auto& [ptr, info] : g_ptr_map) {
-                std::fprintf(stderr, "  - %p: %zu bytes (%s)\n", 
-                            ptr, info.size, to_string(info.type));
-            }
-        }
+    if (!g_initialized.load(std::memory_order_acquire)) {
+        do_init();
     }
 }
 
@@ -179,87 +192,76 @@ void hbm_set_fallback_enabled(bool enable) {
 }
 
 void hbm_set_zero_allocs_allowed(bool allow) {
-    g_allow_zero_allocs.store(allow);
+    // 在应用层处理
 }
 
 void hbm_memory_cleanup()
 {
-    std::unique_lock lk(g_map_mtx);
+    std::lock_guard<std::mutex> lk(g_map_mtx);
     g_ptr_map.clear();
 }
 
 void hbm_print_stats()
 {
-    std::shared_lock lk(g_map_mtx);
-    size_t hbm_count = 0, hbm_bytes = 0;
-    size_t dram_count = 0, dram_bytes = 0;
+    std::lock_guard<std::mutex> lk(g_map_mtx);
+    size_t hbm_count = 0, standard_count = 0, fallback_count = 0;
     
     for (const auto& [ptr, info] : g_ptr_map) {
-        if (info.type == MemType::HBM_DIRECT) {
-            hbm_count++;
-            hbm_bytes += info.size;
-        } else if (info.type != MemType::STANDARD) {
-            dram_count++;
-            dram_bytes += info.size;
+        switch (info.type) {
+            case MemType::HBM_DIRECT: hbm_count++; break;
+            case MemType::HBM_FALLBACK: fallback_count++; break;
+            case MemType::STANDARD: standard_count++; break;
         }
     }
     
-    std::cout << "\n[HBM] Memory Statistics:\n"
-              << "  Active allocations: " << g_ptr_map.size() << "\n"
-              << "  HBM allocations:    " << hbm_count << " (" << hbm_bytes << " bytes)\n"
-              << "  DRAM allocations:   " << dram_count << " (" << dram_bytes << " bytes)\n\n";
+    std::fprintf(stderr, "\n[HBM] Memory Statistics:\n");
+    std::fprintf(stderr, "  Total allocations: %zu\n", g_ptr_map.size());
+    std::fprintf(stderr, "  HBM direct:        %zu\n", hbm_count);
+    std::fprintf(stderr, "  HBM fallback:      %zu\n", fallback_count);
+    std::fprintf(stderr, "  Standard:          %zu\n\n", standard_count);
 }
 
 bool hbm_check_availability()
 {
+    ensure_init();
     return memkind_check_available(MEMKIND_HBW) == MEMKIND_SUCCESS;
 }
 
-// ─────────────────── 判断指针归属 ──────────────────────────
+// ─────────────────── 核心内存管理接口 ─────────────────────────
 extern "C"
 bool is_hbm_ptr(void *ptr)
 {
-    if (!ptr || !g_ready.load(std::memory_order_acquire)) return false;
+    if (!ptr || !g_initialized.load(std::memory_order_acquire)) return false;
     
-    RecursionGuard guard;
-    if (guard.is_recursive()) return false;
-    
-    // 尝试获取共享锁
-    std::shared_lock<std::shared_mutex> lk(g_map_mtx, std::try_to_lock);
-    if (!lk.owns_lock()) return false;
-
+    std::lock_guard<std::mutex> lk(g_map_mtx);
     auto it = g_ptr_map.find(ptr);
     return (it != g_ptr_map.end()) && (it->second.type != MemType::STANDARD);
 }
 
-// ─────────────────── hbm_malloc ───────────────────────────────
 extern "C"
 void *hbm_malloc(std::size_t bytes)
 {
-    // 确保运行时已初始化
-    if (!g_ready.load()) {
-        init_runtime();
-    }
+    ensure_init();
     
-    // 处理零字节分配
-    if (bytes == 0) {
-        if (!g_allow_zero_allocs.load()) {
-            return nullptr;
-        }
-        bytes = 1;  // 分配最小单位
-    }
-
+    if (bytes == 0) return nullptr;
+    
     void      *ptr  = nullptr;
     MemType   type = MemType::STANDARD;
     memkind_t kind = MEMKIND_DEFAULT;
+    
+    // 防止递归
+    RecursionGuard guard;
+    if (guard.is_recursive()) {
+        return real_malloc(bytes);
+    }
 
-    // 1) 尝试直接 HBM 分配
+    // 1) 尝试 HBM 分配
     ptr = memkind_malloc(MEMKIND_HBW, bytes);
     if (ptr) {
         type = MemType::HBM_DIRECT;
         kind = MEMKIND_HBW;
     } else if (g_fallback_enabled.load()) {
-        // 2) 尝试 HBM_PREFERRED（自动回退）
+        // 2) 尝试 HBM_PREFERRED
         ptr = memkind_malloc(MEMKIND_HBW_PREFERRED, bytes);
         if (ptr) {
             type = MemType::HBM_FALLBACK;
@@ -267,39 +269,38 @@ void *hbm_malloc(std::size_t bytes)
         }
     }
 
-    // 3) 最终回退至系统 malloc
+    // 3) 回退到标准 malloc
     if (!ptr) {
-        ptr  = real_malloc(bytes);
+        guard.disable();  // 避免 real_malloc 再次进入
+        ptr = real_malloc(bytes);
         type = MemType::STANDARD;
         kind = MEMKIND_DEFAULT;
     }
 
     if (ptr) {
-        RecursionGuard guard;
-        std::unique_lock lk(g_map_mtx);
-        g_ptr_map[ptr] = AllocInfo{type, bytes, kind};
-    }
-
-    if (g_debug.load()) {
-        std::cout << "[HBM] malloc(" << bytes << ") → " << ptr
-                  << " (" << to_string(type) << ")\n";
+        std::lock_guard<std::mutex> lk(g_map_mtx);
+        g_ptr_map[ptr] = AllocInfo{type, kind};
+        
+        if (g_debug.load()) {
+            std::fprintf(stderr, "[HBM] malloc(%zu) → %p (%s)\n", 
+                        bytes, ptr, to_string(type));
+        }
     }
     
     return ptr;
 }
 
-// ─────────────────── hbm_free ────────────────────────────────
 extern "C"
 void hbm_free(void *ptr)
 {
     if (!ptr) return;
-
-    AllocInfo info{MemType::STANDARD, 0, MEMKIND_DEFAULT};
+    
+    AllocInfo info{MemType::STANDARD, MEMKIND_DEFAULT};
     bool found = false;
 
+    // 查找并删除元数据
     {
-        RecursionGuard guard;
-        std::unique_lock lk(g_map_mtx);
+        std::lock_guard<std::mutex> lk(g_map_mtx);
         auto it = g_ptr_map.find(ptr);
         if (it != g_ptr_map.end()) {
             info = it->second;
@@ -308,51 +309,50 @@ void hbm_free(void *ptr)
         }
     }
 
-    // 根据类型选择释放方式
-    if (info.type == MemType::STANDARD || !found) {
+    // 防止递归
+    RecursionGuard guard;
+    
+    // 执行释放
+    if (!found || info.type == MemType::STANDARD) {
+        guard.disable();
         real_free(ptr);
     } else {
-        // 使用记录的 kind，避免内部查找
         memkind_free(info.kind, ptr);
     }
 
-    if (g_debug.load()) {
-        std::cout << "[HBM] free(" << ptr << ")"
-                  << " (" << to_string(info.type) << ")\n";
+    if (g_debug.load() && found) {
+        std::fprintf(stderr, "[HBM] free(%p) (%s)\n", ptr, to_string(info.type));
     }
 }
 
-// ─────────────────── 扩展接口实现 ─────────────────────────────
+// ─────────────────── 扩展接口 ────────────────────────────────
 extern "C"
 int hbm_posix_memalign(void **memptr, std::size_t alignment, std::size_t size)
 {
+    ensure_init();
+    
     if (!memptr || !alignment || (alignment & (alignment - 1)) != 0) {
         return EINVAL;
     }
     
-    if (!g_ready.load()) {
-        init_runtime();
-    }
-    
-    if (size == 0) {
-        if (!g_allow_zero_allocs.load()) {
-            *memptr = nullptr;
-            return 0;
-        }
-        size = 1;
-    }
+    *memptr = nullptr;
+    if (size == 0) return 0;
 
     int ret = MEMKIND_ERROR_UNAVAILABLE;
     MemType type = MemType::STANDARD;
     memkind_t kind = MEMKIND_DEFAULT;
+    
+    RecursionGuard guard;
+    if (guard.is_recursive()) {
+        return real_posix_memalign(memptr, alignment, size);
+    }
 
-    // 1) 尝试 HBM
+    // 尝试 HBM
     ret = memkind_posix_memalign(MEMKIND_HBW, memptr, alignment, size);
     if (ret == 0 && *memptr) {
         type = MemType::HBM_DIRECT;
         kind = MEMKIND_HBW;
     } else if (g_fallback_enabled.load()) {
-        // 2) 尝试 HBM_PREFERRED
         ret = memkind_posix_memalign(MEMKIND_HBW_PREFERRED, memptr, alignment, size);
         if (ret == 0 && *memptr) {
             type = MemType::HBM_FALLBACK;
@@ -360,17 +360,17 @@ int hbm_posix_memalign(void **memptr, std::size_t alignment, std::size_t size)
         }
     }
 
-    // 3) 回退到标准内存
+    // 回退到标准内存
     if (ret != 0 || !*memptr) {
+        guard.disable();
         ret = real_posix_memalign(memptr, alignment, size);
         type = MemType::STANDARD;
         kind = MEMKIND_DEFAULT;
     }
 
     if (ret == 0 && *memptr) {
-        RecursionGuard guard;
-        std::unique_lock lk(g_map_mtx);
-        g_ptr_map[*memptr] = AllocInfo{type, size, kind};
+        std::lock_guard<std::mutex> lk(g_map_mtx);
+        g_ptr_map[*memptr] = AllocInfo{type, kind};
     }
 
     return ret;
@@ -379,36 +379,32 @@ int hbm_posix_memalign(void **memptr, std::size_t alignment, std::size_t size)
 extern "C"
 void *hbm_calloc(std::size_t num, std::size_t size)
 {
-    if (!g_ready.load()) {
-        init_runtime();
-    }
+    ensure_init();
     
-    if (num == 0 || size == 0) {
-        if (!g_allow_zero_allocs.load()) {
-            return nullptr;
-        }
-        num = 1;
-        size = 1;
+    if (num == 0 || size == 0) return nullptr;
+    
+    // 检查溢出
+    size_t total = num * size;
+    if (num != 0 && total / num != size) {
+        errno = ENOMEM;
+        return nullptr;
     }
 
     void *ptr = nullptr;
     MemType type = MemType::STANDARD;
     memkind_t kind = MEMKIND_DEFAULT;
-    size_t total_size = num * size;
-
-    // 检查溢出
-    if (num != 0 && total_size / num != size) {
-        errno = ENOMEM;
-        return nullptr;
+    
+    RecursionGuard guard;
+    if (guard.is_recursive()) {
+        return real_calloc(num, size);
     }
 
-    // 1) 尝试 HBM
+    // 尝试 HBM
     ptr = memkind_calloc(MEMKIND_HBW, num, size);
     if (ptr) {
         type = MemType::HBM_DIRECT;
         kind = MEMKIND_HBW;
     } else if (g_fallback_enabled.load()) {
-        // 2) 尝试 HBM_PREFERRED
         ptr = memkind_calloc(MEMKIND_HBW_PREFERRED, num, size);
         if (ptr) {
             type = MemType::HBM_FALLBACK;
@@ -416,17 +412,17 @@ void *hbm_calloc(std::size_t num, std::size_t size)
         }
     }
 
-    // 3) 回退到标准内存
+    // 回退到标准内存
     if (!ptr) {
+        guard.disable();
         ptr = real_calloc(num, size);
         type = MemType::STANDARD;
         kind = MEMKIND_DEFAULT;
     }
 
     if (ptr) {
-        RecursionGuard guard;
-        std::unique_lock lk(g_map_mtx);
-        g_ptr_map[ptr] = AllocInfo{type, total_size, kind};
+        std::lock_guard<std::mutex> lk(g_map_mtx);
+        g_ptr_map[ptr] = AllocInfo{type, kind};
     }
 
     return ptr;
@@ -435,11 +431,8 @@ void *hbm_calloc(std::size_t num, std::size_t size)
 extern "C"
 void *hbm_realloc(void *ptr, std::size_t size)
 {
-    if (!g_ready.load()) {
-        init_runtime();
-    }
+    ensure_init();
     
-    // 特殊情况处理
     if (!ptr) return hbm_malloc(size);
     if (size == 0) {
         hbm_free(ptr);
@@ -447,32 +440,29 @@ void *hbm_realloc(void *ptr, std::size_t size)
     }
 
     // 查找原指针信息
-    AllocInfo old_info{MemType::STANDARD, 0, MEMKIND_DEFAULT};
+    AllocInfo old_info{MemType::STANDARD, MEMKIND_DEFAULT};
     {
-        RecursionGuard guard;
-        std::shared_lock lk(g_map_mtx);
+        std::lock_guard<std::mutex> lk(g_map_mtx);
         auto it = g_ptr_map.find(ptr);
         if (it != g_ptr_map.end()) {
             old_info = it->second;
         }
     }
 
+    RecursionGuard guard;
     void *new_ptr = nullptr;
     
-    // 根据原类型进行 realloc
-    if (old_info.type == MemType::STANDARD) {
+    if (old_info.type == MemType::STANDARD || guard.is_recursive()) {
+        guard.disable();
         new_ptr = real_realloc(ptr, size);
     } else {
-        // memkind_realloc 支持 kind=NULL 但有性能损失
         new_ptr = memkind_realloc(old_info.kind, ptr, size);
     }
 
     if (new_ptr && new_ptr != ptr) {
-        // 更新元数据
-        RecursionGuard guard;
-        std::unique_lock lk(g_map_mtx);
+        std::lock_guard<std::mutex> lk(g_map_mtx);
         g_ptr_map.erase(ptr);
-        g_ptr_map[new_ptr] = AllocInfo{old_info.type, size, old_info.kind};
+        g_ptr_map[new_ptr] = old_info;
     }
 
     return new_ptr;
@@ -482,104 +472,86 @@ extern "C"
 std::size_t hbm_malloc_usable_size(void *ptr)
 {
     if (!ptr) return 0;
-
-    // 查找类型
-    memkind_t kind = MEMKIND_DEFAULT;
-    {
-        RecursionGuard guard;
-        std::shared_lock lk(g_map_mtx);
-        auto it = g_ptr_map.find(ptr);
-        if (it != g_ptr_map.end()) {
-            kind = it->second.kind;
-        }
+    
+    std::lock_guard<std::mutex> lk(g_map_mtx);
+    auto it = g_ptr_map.find(ptr);
+    if (it != g_ptr_map.end()) {
+        return memkind_malloc_usable_size(it->second.kind, ptr);
     }
-
-    return memkind_malloc_usable_size(kind, ptr);
+    
+    // 调用原始函数
+    typedef size_t (*malloc_usable_size_fn)(void *);
+    static malloc_usable_size_fn real_malloc_usable_size = nullptr;
+    if (!real_malloc_usable_size) {
+        real_malloc_usable_size = (malloc_usable_size_fn)dlsym(RTLD_NEXT, "malloc_usable_size");
+    }
+    
+    return real_malloc_usable_size ? real_malloc_usable_size(ptr) : 0;
 }
 
 // ─────────────────── free() 钩子 ──────────────────────────────
 extern "C" __attribute__((visibility("default")))
 void free(void *ptr)
 {
-    // ① 空指针直接返回
+    // 空指针直接返回
     if (!ptr) return;
     
-    // ② 早期 / 析构期：仅调用 libc free
-    if (!g_ready.load(std::memory_order_acquire)) {
+    // 未初始化或正在初始化时，使用原始 free
+    if (!g_initialized.load(std::memory_order_acquire) || g_in_init.load()) {
         if (!real_free) {
-            real_free = reinterpret_cast<free_fn>(dlsym(RTLD_NEXT, "free"));
-            if (!real_free) {
-                // 最后尝试
-                void* libc = dlopen("libc.so.6", RTLD_LAZY);
-                if (libc) {
-                    real_free = reinterpret_cast<free_fn>(dlsym(libc, "free"));
-                    dlclose(libc);
-                }
-                if (!real_free) _Exit(127);
-            }
+            init_libc_functions();
         }
         real_free(ptr);
         return;
     }
     
-    // ③ 检查递归调用
+    // 防止递归
     RecursionGuard guard;
     if (guard.is_recursive()) {
         real_free(ptr);
         return;
     }
     
-    // ④ 查找并释放
-    AllocInfo info{MemType::STANDARD, 0, MEMKIND_DEFAULT};
+    // 查找并释放
+    AllocInfo info{MemType::STANDARD, MEMKIND_DEFAULT};
     bool found = false;
-    bool lock_acquired = false;
     
-    // 尝试获取锁，但不要阻塞太久
     {
-        std::unique_lock lk(g_map_mtx, std::try_to_lock);
-        if (lk.owns_lock()) {
-            lock_acquired = true;
-            auto it = g_ptr_map.find(ptr);
-            if (it != g_ptr_map.end()) {
-                info = it->second;
-                found = true;
-                g_ptr_map.erase(it);
-            }
+        std::lock_guard<std::mutex> lk(g_map_mtx);
+        auto it = g_ptr_map.find(ptr);
+        if (it != g_ptr_map.end()) {
+            info = it->second;
+            found = true;
+            g_ptr_map.erase(it);
         }
     }
     
-    // ⑤ 执行释放
-    try {
-        if (found && info.type != MemType::STANDARD) {
-            // HBM 内存使用 memkind_free
-            memkind_free(info.kind, ptr);
-            
-            if (g_debug.load()) {
-                std::cout << "[HBM] free(" << ptr << ") via hook"
-                          << " (" << to_string(info.type) << ")\n";
-            }
-        } else {
-            // 标准内存或未找到的指针
-            // 重要：即使没有获取到锁，也要尝试释放
-            // 这可能是标准内存或者是在锁竞争时分配的内存
-            real_free(ptr);
-            
-            if (g_debug.load() && !found && lock_acquired) {
-                std::cout << "[HBM] free(" << ptr << ") via hook"
-                          << " (STANDARD/unknown)\n";
-            }
-            
-            // 额外的跟踪
-            if (g_trace_all_frees.load()) {
-                std::cout << "[TRACE] free(" << ptr << ") -> real_free"
-                          << " (found=" << found << ", lock=" << lock_acquired << ")\n";
-            }
-        }
-    } catch (...) {
-        // 如果发生任何异常，尝试使用标准 free
-        if (g_debug.load()) {
-            std::cerr << "[HBM] Exception in free hook, falling back to real_free\n";
-        }
+    // 执行释放
+    if (!found || info.type == MemType::STANDARD) {
+        guard.disable();  // 防止 real_free 内部再次调用
         real_free(ptr);
+    } else {
+        memkind_free(info.kind, ptr);
+    }
+    
+    if (g_debug.load() && found && info.type != MemType::STANDARD) {
+        std::fprintf(stderr, "[HBM] free(%p) via hook (%s)\n", ptr, to_string(info.type));
+    }
+}
+
+// ─────────────────── 构造/析构函数 ────────────────────────────
+__attribute__((constructor))
+static void hbm_constructor()
+{
+    // 构造函数中进行基本初始化
+    init_libc_functions();
+}
+
+__attribute__((destructor))
+static void hbm_destructor()
+{
+    // 输出统计信息
+    if (g_debug.load() && g_initialized.load()) {
+        hbm_print_stats();
     }
 }
