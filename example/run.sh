@@ -55,3 +55,18 @@ sudo ldconfig
 
 
  clang source.ll -o program  ../build/advancedhbm/libHBMMemoryManager.so  -lmemkind -ldl -lpthread
+
+
+
+ # 1. 生成 LLVM IR
+clang -O0 -emit-llvm -S test_numa.c -o source.ll
+
+# 2. Pass 转换（会把部分 malloc → hbm_malloc）
+opt-18 -load-pass-plugin=../build/advancedhbm/AdvancedHBMPlugin.so \
+      -passes=hbm-transform \
+      -S source.ll -o optimized.ll
+
+# 3. 链接 —— ★不要★ 再添加 -Wl,--wrap=malloc/free
+clang optimized.ll -o test_numa \
+      ../build/advancedhbm/libHBMMemoryManager.so \
+      -lmemkind -lnuma -ldl -lpthread
