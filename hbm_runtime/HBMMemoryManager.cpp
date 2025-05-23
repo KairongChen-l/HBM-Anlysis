@@ -36,6 +36,7 @@ std::atomic<bool> g_ready{false};         // 静态区是否已完成构造
 std::atomic<bool> g_debug{false};         // 调试开关
 std::atomic<bool> g_fallback_enabled{true}; // 是否启用 DRAM 回退
 std::atomic<bool> g_allow_zero_allocs{false}; // 是否允许零字节分配
+std::atomic<bool> g_trace_all_frees{false}; // 跟踪所有 free 调用
 
 // 内存类型和元数据
 enum class MemType : uint8_t { 
@@ -121,6 +122,11 @@ static void init_runtime()
     const char* debug_env = std::getenv("HBM_DEBUG");
     if (debug_env && std::strcmp(debug_env, "1") == 0) {
         g_debug.store(true);
+    }
+    
+    const char* trace_env = std::getenv("HBM_TRACE_FREE");
+    if (trace_env && std::strcmp(trace_env, "1") == 0) {
+        g_trace_all_frees.store(true);
     }
     
     if (g_debug.load()) {
@@ -561,6 +567,12 @@ void free(void *ptr)
             if (g_debug.load() && !found && lock_acquired) {
                 std::cout << "[HBM] free(" << ptr << ") via hook"
                           << " (STANDARD/unknown)\n";
+            }
+            
+            // 额外的跟踪
+            if (g_trace_all_frees.load()) {
+                std::cout << "[TRACE] free(" << ptr << ") -> real_free"
+                          << " (found=" << found << ", lock=" << lock_acquired << ")\n";
             }
         }
     } catch (...) {
